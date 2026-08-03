@@ -47,6 +47,7 @@ Repository settings の Environments で `github-pages` を作り、次を設定
 
 - Deployment branches and tags は Selected branches and tags
 - 許可する branch pattern は `production` だけ
+- GitHub Pages が自動追加した `main` の branch pattern があれば削除
 - tag pattern は追加しない
 - 管理者による protection rule の bypass を禁止
 - Environment secret は作成しない
