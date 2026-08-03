@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>GitHub Pages デプロイ承認</title>
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Approval GitHub App</p>
+      <h1>デプロイ承認</h1>
+      <p class="lead">
+        承認操作の直前に Cloudflare Access が物理セキュリティキーを要求します。
+      </p>
+    </header>
+    <main>
+      <div class="toolbar">
+        <h2>承認要求</h2>
+        <button id="reload" type="button">更新</button>
+      </div>
+      <p id="status" role="status">読み込み中です</p>
+      <ol id="requests" class="requests"></ol>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

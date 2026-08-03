@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2024"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["shared/**/*.ts", "worker/**/*.ts", "worker-configuration.d.ts"]
+}

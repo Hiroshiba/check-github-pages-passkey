@@ -1,0 +1,9 @@
+.agents/
+.claude/
+.codex/
+dist/
+node_modules/
+hiho_*.md
+hiho_prompt.txt
+pnpm-lock.yaml
+worker-configuration.d.ts

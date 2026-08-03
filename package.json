@@ -1,0 +1,40 @@
+{
+  "name": "check-github-pages-passkey",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=10 <11"
+  },
+  "scripts": {
+    "build": "pnpm run build:site && pnpm run build:approval",
+    "build:approval": "vite build --config vite.approval.config.ts",
+    "build:site": "vite build --config vite.site.config.ts",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run build:approval && pnpm run worker:dry-run",
+    "dev:approval": "pnpm run build:approval && wrangler dev",
+    "dev:site": "vite --config vite.site.config.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "tsc --build --noEmit",
+    "worker:dry-run": "pnpm run build:approval && wrangler deploy --dry-run",
+    "worker:types": "wrangler types"
+  },
+  "dependencies": {
+    "jose": "6.2.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.8.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vite": "8.1.5",
+    "wrangler": "4.114.0"
+  }
+}
