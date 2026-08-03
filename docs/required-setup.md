@@ -16,6 +16,8 @@
 
 GitHub の custom deployment protection rule は Public Preview です。本番移行前に再実行を含む試験が必要です。
 
+個人リポジトリの所有者は Admin から下げられません。このリポジトリを個人アカウントで試す間は仕組みの動作確認に限定します。通常利用アカウントの侵害に耐える本番構成では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
+
 ## main と production を準備する
 
 1. この実装を main に反映する。
