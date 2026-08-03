@@ -18,6 +18,15 @@ GitHub の custom deployment protection rule は Public Preview です。本番�
 
 個人リポジトリの所有者は Admin から下げられません。このリポジトリを個人アカウントで試す間は仕組みの動作確認に限定します。通常利用アカウントの侵害に耐える本番構成では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
 
+Cloudflare で使う値は次のように準備します。
+
+- Zero Trust team domain は [Cloudflare dashboard](https://dash.cloudflare.com/) の Zero Trust で確認する。未作成ならオンボーディングで team name を決める。team name が `example-team` なら設定値は `https://example-team.cloudflareaccess.com`
+- 承認用ホスト名は Cloudflare で管理している DNS zone の未使用サブドメインから決める。例えば `pages-approval.example.com`。DNS レコードは Custom Domain のデプロイ時に Wrangler が作成するため、先に作らない
+- 承認専用メールアドレスは Access へのログインに使うアドレスから決める。Cloudflare account と同じアドレスでもよい。別のアドレスを使う場合は IdP または One-time PIN でログインできるようにする
+- 物理キーの製品名とモデルは手元の FIDO2 と WebAuthn 対応セキュリティキーから確認する。主キーと予備キーを1本ずつ用意する。Windows Hello、Touch ID、スマートフォン内蔵パスキーは今回の物理キーに含めない
+
+既存 Worker の `workers.dev` ホスト名から Zero Trust team domain や利用可能な DNS zone は特定できません。Cloudflare account を持っているだけでは Zero Trust organization や独自ドメインが作成済みとは限りません。
+
 ## main と production を準備する
 
 1. この実装を main に反映する。
@@ -99,7 +108,7 @@ Wrangler の認証先が想定した Cloudflare account であることを確認
 pnpm wrangler whoami
 ```
 
-依存関係、生成型、静的検査を確認してから Worker を一度デプロイします。KV namespace は Wrangler が binding から自動作成します。
+依存関係、生成型、静的検査を確認します。
 
 Worker のデプロイは、内容を確認したローカル checkout から信頼できる管理者が実行します。Cloudflare API token を GitHub Actions やこのリポジトリへ渡してはいけません。
 
@@ -107,16 +116,44 @@ Worker のデプロイは、内容を確認したローカル checkout から信
 pnpm install --frozen-lockfile
 pnpm run worker:types
 pnpm run check
-pnpm wrangler deploy
 ```
 
-初回デプロイでは Wrangler が KV namespace の ID を `wrangler.jsonc` に書き戻します。自動変更を確認し、`pnpm run worker:types` を再実行します。生成された KV ID と型定義は以後の checkout でも維持します。
+`wrangler.jsonc` は4個の必須 Secret を宣言しています。新規 Worker は `wrangler secret put` より先に作れないため、初回デプロイでは4個をSecretファイルから同時に登録します。
+
+GitHub App の private key を PKCS#8 に変換します。入力元と出力先はリポジトリの外に置きます。
+
+```shell
+openssl pkcs8 -topk8 -nocrypt \
+  -in /安全な場所/github-app-private-key.pem \
+  -out /安全な場所/github-app-private-key.pkcs8.pem
+```
+
+リポジトリ直下に一時ファイル `.env.initial-deploy` を作り、次の形式で値を入力します。このファイルは `.gitignore` の `.env.*` に一致しますが、Git の状態も必ず確認します。
+
+```dotenv
+APPROVER_EMAIL="承認専用メールアドレス"
+DECISION_TOKEN_SECRET="パスワードマネージャーで生成した32文字以上の値"
+GITHUB_WEBHOOK_SECRET="GitHub Appに設定したWebhook secret"
+GITHUB_APP_PRIVATE_KEY="""
+-----BEGIN PRIVATE KEY-----
+PKCS#8へ変換したprivate key
+-----END PRIVATE KEY-----
+"""
+```
+
+Secretファイルを指定して初回デプロイします。KV namespace は Wrangler が binding から自動作成します。
+
+```shell
+pnpm wrangler deploy --secrets-file .env.initial-deploy
+```
+
+デプロイ成功後すぐに `.env.initial-deploy` を削除します。初回デプロイでは Wrangler が KV namespace の ID を `wrangler.jsonc` に書き戻します。自動変更を確認し、`pnpm run worker:types` を再実行します。生成された KV ID と型定義は以後の checkout でも維持します。
 
 `routes` を使わない場合は、Cloudflare で承認専用の Custom Domain を Worker に割り当てます。GitHub Webhook と Access application は workers.dev ではなくこのホスト名を使います。
 
 `wrangler.jsonc` は workers.dev と preview URL を無効化しています。Custom Domain を割り当てるまで Worker へ外部からアクセスできません。
 
-Worker が作成されたら Secret を対話入力します。
+初回デプロイ後に Secret を更新するときは対話入力します。
 
 ```shell
 pnpm wrangler secret put APPROVER_EMAIL
@@ -133,9 +170,9 @@ openssl pkcs8 -topk8 -nocrypt -in github-app-private-key.pem |
 - `GITHUB_WEBHOOK_SECRET` は GitHub App に設定した Webhook secret と同じ値
 - `GITHUB_APP_PRIVATE_KEY` は GitHub App の private key を PKCS#8 へ変換した PEM 全文
 
-GitHub からダウンロードした秘密鍵を `github-app-private-key.pem` としてリポジトリの外へ置きます。GitHub が生成する鍵を `openssl pkcs8` で PKCS#8 へ変換し、その出力をファイルへ保存せず Wrangler に渡します。
+GitHub からダウンロードした秘密鍵はリポジトリの外へ置きます。更新時は `openssl pkcs8` の出力をファイルへ保存せず Wrangler に渡します。
 
-値をコマンド引数へ書かず、通常の Secret は対話入力を使います。Secret と秘密鍵をリポジトリ、`.env`、`wrangler.jsonc`、GitHub Actions に保存してはいけません。
+値をコマンド引数へ書かず、通常の Secret は対話入力を使います。Secret と秘密鍵をリポジトリ、`.env`、`wrangler.jsonc`、GitHub Actions に永続保存してはいけません。一時 Secret ファイルは初回デプロイ直後に削除します。
 
 ## Cloudflare Access を設定する
 
