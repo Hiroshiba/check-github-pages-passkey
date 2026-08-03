@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "github-pages-deployment-approval",
   "main": "worker/src/index.ts",
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
   "compatibility_date": "2026-08-03",
   "compatibility_flags": ["nodejs_compat"],
@@ -14,7 +14,6 @@
   "kv_namespaces": [{ "binding": "DEPLOYMENT_REQUESTS" }],
   "secrets": {
     "required": [
-      "APPROVER_EMAIL",
       "DECISION_TOKEN_SECRET",
       "GITHUB_APP_PRIVATE_KEY",
       "GITHUB_WEBHOOK_SECRET",
@@ -22,12 +21,13 @@
   },
   "vars": {
     "ACCESS_AUD": "0000000000000000000000000000000000000000000000000000000000000000",
-    "ACCESS_TEAM_DOMAIN": "https://replace-with-team.cloudflareaccess.com",
+    "ACCESS_TEAM_DOMAIN": "https://voicevox-oss-01.cloudflareaccess.com",
     "ALLOWED_ENVIRONMENT": "github-pages",
     "ALLOWED_REPOSITORY": "Hiroshiba/check-github-pages-passkey",
     "ALLOWED_REPOSITORY_ID": "1320267202",
     "ALLOWED_WORKFLOW_PATH": ".github/workflows/deploy-pages.yml",
     "ALLOWED_WORKFLOW_REF": "refs/heads/production",
+    "APPROVER_EMAIL": "voicevox.oss@gmail.com",
     "EXPECTED_WORKFLOW_SHA": "aba78a32b177696ecfe258155ecbd7d1eb1c1424",
     "GITHUB_APP_CLIENT_ID": "REPLACE_WITH_GITHUB_APP_CLIENT_ID",
   },

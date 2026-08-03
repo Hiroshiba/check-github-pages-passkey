@@ -1,8 +1,10 @@
-# GitHub Pages 物理キー承認プロトタイプ
+# GitHub Pages 端末内蔵認証器承認プロトタイプ
 
-main を通常開発用、production を固定デプロイ用として分離し、GitHub Pages の公開直前に物理セキュリティキーを要求するプロトタイプです。
+main を通常開発用、production を固定デプロイ用として分離し、GitHub Pages の公開直前に Windows Hello または Touch ID を要求するプロトタイプです。
 
-この構成は通常の Write 権限が侵害されても、Approval GitHub App と Cloudflare Access を通らずに GitHub Pages を更新できないことを目的にします。リポジトリの Admin、Organization Owner、Cloudflare 管理者、DNS 管理者の侵害は防げません。
+この構成は通常の Write 権限が侵害されても、Approval GitHub App と Cloudflare Access を通らずに GitHub Pages を更新できないことを目的にします。リポジトリの Admin、Organization Owner、Cloudflare 管理者の侵害は防げません。
+
+Windows Hello は端末設定によって PIN でも認証できます。取り外し可能な物理セキュリティキーだけを必須にする構成ではありません。
 
 構成要素は次のとおりです。
 

@@ -34,7 +34,7 @@ export function renderConfirmationPage(
   <body>
     <main>
       <h1>デプロイ内容の最終確認</h1>
-      <p>物理セキュリティキーの認証に成功しました。内容を確認して2分以内に決定してください。</p>
+      <p>端末内蔵認証器の認証に成功しました。内容を確認して2分以内に決定してください。</p>
       <dl>
         ${detail("リポジトリ", request.repository)}
         ${detail("Workflow", request.workflowPath)}

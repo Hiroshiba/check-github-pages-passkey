@@ -192,8 +192,8 @@ export async function reviewDeployment(
       body: JSON.stringify({
         comment:
           decision === "approved"
-            ? "Cloudflare Access の物理セキュリティキー認証を通過しました"
-            : "Cloudflare Access の物理セキュリティキー認証後に却下されました",
+            ? "Cloudflare Access の端末内蔵認証器による認証を通過しました"
+            : "Cloudflare Access の端末内蔵認証器による認証後に却下されました",
         environment_name: configuration.ALLOWED_ENVIRONMENT,
         state: decision,
       }),

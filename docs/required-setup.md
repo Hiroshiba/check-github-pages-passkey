@@ -8,24 +8,25 @@
 - 既定ブランチを main にする
 - 通常利用者の権限を Write 以下にする
 - Maintain、Admin、Organization Owner は侵害時に設定を変更できると理解する
-- break-glass 用管理者と Cloudflare 管理者に物理キーを2本ずつ登録する
-- 承認用ホスト名の DNS zone と Zero Trust organization を Cloudflare で準備する
+- break-glass 用管理者と Cloudflare 管理者の認証を承認専用認証と分離する
 - Node.js 24 と pnpm 10 を用意する
 - OpenSSL を用意する
-- 承認専用メールアドレスが IdP または One-time PIN で Access にログインできるようにする
+- `voicevox.oss@gmail.com` が One-time PIN で Access にログインできるようにする
 
 GitHub の custom deployment protection rule は Public Preview です。本番移行前に再実行を含む試験が必要です。
 
 個人リポジトリの所有者は Admin から下げられません。このリポジトリを個人アカウントで試す間は仕組みの動作確認に限定します。通常利用アカウントの侵害に耐える本番構成では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
 
-Cloudflare で使う値は次のように準備します。
+このプロトタイプで使う値は確定済みです。
 
-- Zero Trust team domain は [Cloudflare dashboard](https://dash.cloudflare.com/) の Zero Trust で確認する。未作成ならオンボーディングで team name を決める。team name が `example-team` なら設定値は `https://example-team.cloudflareaccess.com`
-- 承認用ホスト名は Cloudflare で管理している DNS zone の未使用サブドメインから決める。例えば `pages-approval.example.com`。DNS レコードは Custom Domain のデプロイ時に Wrangler が作成するため、先に作らない
-- 承認専用メールアドレスは Access へのログインに使うアドレスから決める。Cloudflare account と同じアドレスでもよい。別のアドレスを使う場合は IdP または One-time PIN でログインできるようにする
-- 物理キーの製品名とモデルは手元の FIDO2 と WebAuthn 対応セキュリティキーから確認する。主キーと予備キーを1本ずつ用意する。Windows Hello、Touch ID、スマートフォン内蔵パスキーは今回の物理キーに含めない
+- Zero Trust team domain は `https://voicevox-oss-01.cloudflareaccess.com`
+- 承認用ホスト名は `github-pages-deployment-approval.voicevox-oss.workers.dev`
+- 承認専用メールアドレスは `voicevox.oss@gmail.com`
+- 承認用認証器は Windows Hello と macOS Touch ID
 
-既存 Worker の `workers.dev` ホスト名から Zero Trust team domain や利用可能な DNS zone は特定できません。Cloudflare account を持っているだけでは Zero Trust organization や独自ドメインが作成済みとは限りません。
+Windows Hello と Touch ID は Cloudflare 上では Security key ではなく Biometrics に分類されます。どちらも端末内蔵の WebAuthn platform authenticator です。Windows Hello は端末設定によって PIN でも認証できるため、指紋や顔だけを必須にはできません。このプロトタイプは取り外し可能な物理セキュリティキーを必須にする元の要件とは異なります。
+
+独自ドメインは不要です。Cloudflare Access は `workers.dev` hostname に明示的に設定できます。`workers.dev` は試験用途向けのため、本番運用へ移す場合は Cloudflare で管理する独自ドメインへ変更します。
 
 ## main と production を準備する
 
@@ -72,7 +73,7 @@ GitHub App を1個作り、次だけを設定します。
 - Deployments repository permission は Read and write
 - User authorization は使わない
 - Deployment protection rule event を購読
-- Webhook URL は `https://承認用ホスト名/github/webhook`
+- Webhook URL は `https://github-pages-deployment-approval.voicevox-oss.workers.dev/github/webhook`
 - Webhook secret はパスワードマネージャーで生成した32文字以上の値
 - SSL verification は有効
 - Webhook は Active
@@ -85,22 +86,19 @@ App を対象リポジトリへインストールします。Deployment protecti
 
 ## Worker を準備する
 
-`wrangler.jsonc` の次の値を置き換えます。
+`wrangler.jsonc` には次の非機密情報を設定済みです。
 
-- `EXPECTED_WORKFLOW_SHA` は記録した production の先頭コミット SHA
-- `GITHUB_APP_CLIENT_ID` は Approval GitHub App の Client ID
-- `ACCESS_TEAM_DOMAIN` は `https://チーム名.cloudflareaccess.com`
-- `ACCESS_AUD` は後で作る Access application の AUD tag
+- `EXPECTED_WORKFLOW_SHA` は production の先頭コミット `aba78a32b177696ecfe258155ecbd7d1eb1c1424`
+- `ACCESS_TEAM_DOMAIN` は `https://voicevox-oss-01.cloudflareaccess.com`
+- `APPROVER_EMAIL` は `voicevox.oss@gmail.com`
+- `workers_dev` は有効
+- `preview_urls` は無効
+
+GitHub App の作成後に `GITHUB_APP_CLIENT_ID` を Client ID へ置き換えます。`ACCESS_AUD` は後で作る Access application の AUD tag へ置き換えます。
 
 このリポジトリでは `ALLOWED_REPOSITORY_ID` を現在の ID `1320267202` に固定しています。別リポジトリへコピーした場合は GitHub API で数値 ID を取得して変更します。名前だけを信頼してはいけません。
 
 `ACCESS_AUD` は Access application の作成前には取得できません。初回デプロイだけはゼロのプレースホルダーを残します。この時点の Worker は作成用であり、`/health` は失敗し、承認要求も拒否します。
-
-Custom Domain を Wrangler で作る場合は、`wrangler.jsonc` に次の設定を追加します。既存の CNAME と重なるホスト名は使えません。
-
-```jsonc
-"routes": [{ "pattern": "承認用ホスト名", "custom_domain": true }],
-```
 
 Wrangler の認証先が想定した Cloudflare account であることを確認します。未ログインまたは別の account なら `pnpm wrangler login` を実行してから再確認します。
 
@@ -118,7 +116,7 @@ pnpm run worker:types
 pnpm run check
 ```
 
-`wrangler.jsonc` は4個の必須 Secret を宣言しています。新規 Worker は `wrangler secret put` より先に作れないため、初回デプロイでは4個をSecretファイルから同時に登録します。
+`wrangler.jsonc` は3個の必須 Secret を宣言しています。新規 Worker は `wrangler secret put` より先に作れないため、初回デプロイでは3個を Secret ファイルから同時に登録します。
 
 GitHub App の private key を PKCS#8 に変換します。入力元と出力先はリポジトリの外に置きます。
 
@@ -131,7 +129,6 @@ openssl pkcs8 -topk8 -nocrypt \
 リポジトリ直下に一時ファイル `.env.initial-deploy` を作り、次の形式で値を入力します。このファイルは `.gitignore` の `.env.*` に一致しますが、Git の状態も必ず確認します。
 
 ```dotenv
-APPROVER_EMAIL="承認専用メールアドレス"
 DECISION_TOKEN_SECRET="パスワードマネージャーで生成した32文字以上の値"
 GITHUB_WEBHOOK_SECRET="GitHub Appに設定したWebhook secret"
 GITHUB_APP_PRIVATE_KEY="""
@@ -149,14 +146,11 @@ pnpm wrangler deploy --secrets-file .env.initial-deploy
 
 デプロイ成功後すぐに `.env.initial-deploy` を削除します。初回デプロイでは Wrangler が KV namespace の ID を `wrangler.jsonc` に書き戻します。自動変更を確認し、`pnpm run worker:types` を再実行します。生成された KV ID と型定義は以後の checkout でも維持します。
 
-`routes` を使わない場合は、Cloudflare で承認専用の Custom Domain を Worker に割り当てます。GitHub Webhook と Access application は workers.dev ではなくこのホスト名を使います。
-
-`wrangler.jsonc` は workers.dev と preview URL を無効化しています。Custom Domain を割り当てるまで Worker へ外部からアクセスできません。
+Worker の URL は `https://github-pages-deployment-approval.voicevox-oss.workers.dev` です。初回デプロイ後に Cloudflare Access をこの hostname の承認 URL だけへ設定します。
 
 初回デプロイ後に Secret を更新するときは対話入力します。
 
 ```shell
-pnpm wrangler secret put APPROVER_EMAIL
 pnpm wrangler secret put DECISION_TOKEN_SECRET
 pnpm wrangler secret put GITHUB_WEBHOOK_SECRET
 openssl pkcs8 -topk8 -nocrypt -in github-app-private-key.pem |
@@ -165,7 +159,6 @@ openssl pkcs8 -topk8 -nocrypt -in github-app-private-key.pem |
 
 各値の意味は次のとおりです。
 
-- `APPROVER_EMAIL` は承認専用メールアドレス
 - `DECISION_TOKEN_SECRET` はパスワードマネージャーで生成した32文字以上の別の値
 - `GITHUB_WEBHOOK_SECRET` は GitHub App に設定した Webhook secret と同じ値
 - `GITHUB_APP_PRIVATE_KEY` は GitHub App の private key を PKCS#8 へ変換した PEM 全文
@@ -176,40 +169,44 @@ GitHub からダウンロードした秘密鍵はリポジトリの外へ置き�
 
 ## Cloudflare Access を設定する
 
-Zero Trust の Access controls、Access settings で independent MFA を有効にします。許可する MFA method に Security key を含め、Use identity provider MFA は無効にします。
+Zero Trust の Integrations、Identity providers で Add new identity provider を選び、One-time PIN を追加します。次に Access controls、Access settings の Manage your App Launcher で Manage を選びます。Policies では `voicevox.oss@gmail.com` だけを許可し、Authentication では One-time PIN を選んで保存します。
 
-承認専用メールアドレスで App Launcher にログインできることを確認します。Independent MFA は追加認証であり、IdP または One-time PIN による最初の本人認証を置き換えません。
+`voicevox.oss@gmail.com` で `https://voicevox-oss-01.cloudflareaccess.com` にログインし、メールで届く PIN を受け取れることを確認します。Independent MFA は追加認証であり、この最初の本人認証を置き換えません。
 
-Zero Trust の Access controls で Self-hosted public hostname application を作ります。
+Windows Hello と Touch ID を両方登録するには、一時的な TOTP を登録確認用に使います。別端末で認証器を追加するときは、登録済みの independent MFA device による確認が必要なためです。承認 application を有効にする前に TOTP を削除します。
 
-- Hostname は Worker の承認専用 Custom Domain
+1. Zero Trust の Access controls、Access settings で independent MFA を有効にする。
+2. Allowed MFA methods は一時的に Authenticator application と Biometrics を許可する。
+3. Use identity provider MFA は無効にする。
+4. Authentication duration は Require every login にする。
+5. App Launcher の Account、MFA devices、Add an MFA device で Authenticator application を最初に登録する。
+6. Windows から同じ画面を開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
+7. macOS から同じ画面を開き、TOTP で変更を確認して Biometrics、Register biometrics、Add macOS Touch ID を選ぶ。
+8. Windows Hello または Touch ID で変更を確認し、一時的な TOTP を削除する。
+9. Zero Trust の Team & Resources、Users で `voicevox.oss@gmail.com` を選び、MFA devices が Windows Hello と Touch ID の2個だけであることを確認する。
+10. Access settings の Allowed MFA methods を Biometrics だけに変更する。
+
+AAGUID の許可リストは設定しません。Windows Hello と Touch ID は端末ごとの platform authenticator であり、今回の情報だけでは固定すべき AAGUID を決められないためです。登録時には OS の認証画面が出たことを確認し、認証器名に端末名を付けます。
+
+初回デプロイ後、Cloudflare dashboard の Workers & Pages で `github-pages-deployment-approval` を選びます。Settings、Domains & Routes、workers.dev の順に開き、Enable Cloudflare Access を選びます。その後に Manage Access から自動作成された application を編集します。
+
+- Public hostname は `github-pages-deployment-approval.voicevox-oss.workers.dev`
 - Path は `/approval/authorize/*`
-- Allow policy の Include は承認専用メールアドレスだけ
-- Allow policy の MFA も Custom MFA settings にして Security key と Require every login を設定
+- Allow policy の Include は Emails を選び、`voicevox.oss@gmail.com` だけを指定
 - Bypass policy は作らない
 - 同じ hostname と path に重なる別の Access application を作らない
 - Application の Session Duration は Immediate timeout
 - Allow policy の Session Duration も Immediate timeout
-- Custom MFA settings を選ぶ
-- Allowed MFA methods は Security key だけ
+- Application と Allow policy の MFA は Custom MFA settings
+- Allowed MFA methods は Biometrics だけ
 - Authentication duration は Require every login
 - Authenticate with Cloudflare One Client は無効
 
-MFA の `0m` は毎回の Access ログインに作用し、既存の Access application session には作用しません。Session Duration の Immediate timeout も同時に設定しないと、2回目の承認で物理キーが省略される可能性があります。
+MFA の Require every login は Access のログイン時だけ評価されます。既存の application session を残さないため、Application と Allow policy の Session Duration も Immediate timeout にします。Cloudflare One Client session はこの設定より優先されるため、この application では有効にしません。
 
-Cloudflare One Client session は application と policy の Session Duration より優先されます。この application では One Client 認証を有効にしてはいけません。
+保護対象は `/approval/authorize/*` の GET だけです。この1リクエストで2分間有効な署名済み決定トークンを発行します。`/approval/decision/*` の POST は Access の外ですが、Worker が HMAC、期限、run ID、試行回数、リポジトリ ID、Deployment ID、GitHub の現在の状態を検証します。
 
-保護対象は `/approval/authorize/*` の GET だけです。この1リクエストで2分間有効な署名済み決定トークンを発行します。`/approval/decision/*` の POST は Access の外ですが、Worker が HMAC、期限、run ID、試行回数、リポジトリ ID、Deployment ID、GitHub の live な状態を検証します。
-
-`/github/webhook` は Access の対象外です。GitHub の `X-Hub-Signature-256` を Worker が検証します。Worker 全体を Access application に指定すると GitHub Webhook まで遮断するため、必ず hostname と path で範囲を限定します。
-
-Zero Trust の Resources、Lists で MFA AAGUIDs のリストを作り、利用する物理キーのモデルだけを追加します。Access settings の Limit MFA to specific authentication methods にこのリストを設定します。AAGUID 制限は新規登録時だけ適用されるため、許可リスト外の登録済み authenticator は管理者が削除します。
-
-Access の App Launcher から物理セキュリティキーを2本登録します。
-
-- 1本は承認時に使用
-- 1本はオフラインで保管
-- Biometrics、TOTP、IdP の MFA 結果をこの application の代替にしない
+`/github/webhook` は Access の対象外です。GitHub の `X-Hub-Signature-256` を Worker が検証します。Worker hostname 全体を Access で保護すると GitHub Webhook まで遮断するため、必ず path を限定します。
 
 Access application の AUD tag を `wrangler.jsonc` の `ACCESS_AUD` に設定し、Worker を再デプロイします。
 
@@ -235,7 +232,7 @@ gh workflow run .github/workflows/deploy-pages.yml \
 
 ビルド job は Environment、Pages write、ID token、Worker Secret を持ちません。ビルドが成功すると deploy job が github-pages Environment で待機します。
 
-承認用 Worker のトップページを開き、対象 run を選びます。Cloudflare Access の物理セキュリティキー認証後に、リポジトリ、Workflow、ref、Workflow SHA、Environment、ソース SHA を確認して承認します。
+承認用 Worker のトップページを開き、対象 run を選びます。Cloudflare Access で Windows Hello または Touch ID を完了した後に、リポジトリ、Workflow、ref、Workflow SHA、Environment、ソース SHA を確認して承認します。
 
 ## 本番利用前に必ず試験する
 
@@ -245,7 +242,9 @@ gh workflow run .github/workflows/deploy-pages.yml \
 - 別の Workflow パス、Environment、リポジトリ ID を Worker が拒否すること
 - Webhook secret が異なる要求を Worker が拒否すること
 - 決定トークンが2分後に失効すること
-- 同じブラウザで2回続けて承認し、どちらでも物理キーを要求されること
+- Windows と macOS から承認し、それぞれ Windows Hello と Touch ID を要求されること
+- 同じブラウザで2回続けて承認し、どちらでも端末内蔵認証器を要求されること
+- Windows Hello の PIN が許可される端末では、PIN でも認証できることを既知の制約として記録すること
 - Workflow run の再実行でも新しい承認を要求すること
 - 承認後に同じトークンを再送してもデプロイ状態が変わらないこと
 - production ruleset に通常利用者の bypass がないこと

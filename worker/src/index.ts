@@ -196,7 +196,7 @@ async function handleAuthorization(
 ): Promise<Response> {
   const configuration = parseRuntimeConfiguration(env);
   const secrets = parseRuntimeSecrets(env);
-  await verifyAccessIdentity(request, configuration, secrets);
+  await verifyAccessIdentity(request, configuration);
 
   const deploymentRequest = await getStoredRequest(
     env.DEPLOYMENT_REQUESTS,

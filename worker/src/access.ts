@@ -1,10 +1,6 @@
 import { createRemoteJWKSet, errors, jwtVerify } from "jose";
 import { ExternalServiceError, HttpError } from "./errors";
-import {
-  accessJwtClaimsSchema,
-  type RuntimeConfiguration,
-  type RuntimeSecrets,
-} from "./schemas";
+import { accessJwtClaimsSchema, type RuntimeConfiguration } from "./schemas";
 
 async function verifyJwt(
   token: string,
@@ -30,7 +26,6 @@ function isInvalidJwtError(error: unknown): boolean {
 export async function verifyAccessIdentity(
   request: Request,
   configuration: RuntimeConfiguration,
-  secrets: RuntimeSecrets,
 ): Promise<void> {
   const token = request.headers.get("Cf-Access-Jwt-Assertion");
   if (token == null || token === "") {
@@ -72,7 +67,7 @@ export async function verifyAccessIdentity(
       },
     );
   }
-  if (claims.data.email !== secrets.APPROVER_EMAIL) {
+  if (claims.data.email !== configuration.APPROVER_EMAIL) {
     throw new HttpError("このアカウントには承認権限がありません", 403, {});
   }
 }

@@ -64,7 +64,7 @@ function createRequestElement(request: DeploymentRequestView): HTMLLIElement {
     const approvalLink = document.createElement("a");
     approvalLink.className = "approval-link";
     approvalLink.href = `/approval/authorize/${request.runId.toString()}/${request.attempt.toString()}`;
-    approvalLink.textContent = "物理セキュリティキーで確認へ進む";
+    approvalLink.textContent = "端末内蔵認証器で確認へ進む";
     item.append(approvalLink);
   }
 

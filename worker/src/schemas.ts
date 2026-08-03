@@ -29,13 +29,13 @@ export const runtimeConfigurationSchema = z.object({
   ALLOWED_REPOSITORY_ID: z.coerce.number().int().positive(),
   ALLOWED_WORKFLOW_PATH: z.literal(".github/workflows/deploy-pages.yml"),
   ALLOWED_WORKFLOW_REF: z.literal("refs/heads/production"),
+  APPROVER_EMAIL: z.email().transform((value) => value.toLowerCase()),
   EXPECTED_WORKFLOW_SHA: expectedWorkflowShaSchema,
   GITHUB_APP_CLIENT_ID: nonPlaceholderSchema,
 });
 
 export const runtimeSecretsSchema = z
   .object({
-    APPROVER_EMAIL: z.email().transform((value) => value.toLowerCase()),
     DECISION_TOKEN_SECRET: z.string().min(32),
     GITHUB_APP_PRIVATE_KEY: z
       .string()
