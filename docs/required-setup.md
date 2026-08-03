@@ -58,6 +58,7 @@ Workflow 内の `if` は補助的な拒否です。セキュリティ境界は E
 
 GitHub App を1個作り、次だけを設定します。
 
+- Homepage URL は `https://github.com/Hiroshiba/check-github-pages-passkey`
 - Actions repository permission は Read-only
 - Deployments repository permission は Read and write
 - User authorization は使わない
@@ -66,6 +67,7 @@ GitHub App を1個作り、次だけを設定します。
 - Webhook secret はパスワードマネージャーで生成した32文字以上の値
 - SSL verification は有効
 - Webhook は Active
+- Where can this GitHub App be installed は Only on this account
 - インストール先は `Hiroshiba/check-github-pages-passkey` だけ
 
 Contents、Actions write、Pages、Administration の権限は付けません。App の Client ID とダウンロードした private key を安全な場所に保管します。秘密鍵ファイルはリポジトリの外へ置きます。
