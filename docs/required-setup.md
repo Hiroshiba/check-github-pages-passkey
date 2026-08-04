@@ -170,9 +170,24 @@ GitHub からダウンロードした秘密鍵はリポジトリの外へ置き�
 
 ## Cloudflare Access を設定する
 
-Zero Trust の Integrations、Identity providers で Add new identity provider を選び、One-time PIN を追加します。次に Access controls、Access settings の Manage your App Launcher で Manage を選びます。Policies では `voicevox.oss@gmail.com` だけを許可し、Authentication では One-time PIN を選んで保存します。
+One-time PIN と App Launcher を次の順に設定します。Cloudflare dashboard は日本語表示でも一部の項目名が英語になることがあります。
 
-`voicevox.oss@gmail.com` で `https://voicevox-oss-01.cloudflareaccess.com` にログインし、メールで届く PIN を受け取れることを確認します。Independent MFA は追加認証であり、この最初の本人認証を置き換えません。
+1. Zero Trust の Integrations、Identity providers を開く。
+2. Add new identity provider から One-time PIN を追加して保存する。
+3. Access controls、Access settings の Manage your App Launcher で Manage を選ぶ。
+4. Policies タブで「新しいポリシーの作成」を選ぶ。
+5. ポリシー名を `承認者のみ`、アクションを Allow にする。
+6. Include のセレクターで Emails を選び、値を `voicevox.oss@gmail.com` にする。
+7. Require と Exclude は追加せず、ポリシーを保存する。
+8. Authentication タブを開き、One-time PIN だけを選んで保存する。
+
+One-time PIN は最初の本人認証に使う login method です。後で設定する Windows Hello と Touch ID は、このログイン後に要求する independent MFA です。
+
+`https://voicevox-oss-01.cloudflareaccess.com` を開き、`voicevox.oss@gmail.com` を入力して Send login code を選びます。メールで届いた PIN を入力できれば本人認証は成功です。PIN の入力後に利用可能な application がないという画面が出ても、Access application をまだ作成していない段階では問題ありません。
+
+MFA device の登録画面は、管理者向けの Manage your App Launcher にはありません。ログインした利用者が App Launcher の Account、MFA devices から開く画面です。application がない段階では、次の直接 URL を使います。
+
+`https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice`
 
 Windows Hello と Touch ID を両方登録するには、一時的な TOTP を登録確認用に使います。別端末で認証器を追加するときは、登録済みの independent MFA device による確認が必要なためです。承認 application を有効にする前に TOTP を削除します。
 
@@ -180,9 +195,9 @@ Windows Hello と Touch ID を両方登録するには、一時的な TOTP を�
 2. Allowed MFA methods は一時的に Authenticator application と Biometrics を許可する。
 3. Use identity provider MFA は無効にする。
 4. Authentication duration は Require every login にする。
-5. App Launcher の Account、MFA devices、Add an MFA device で Authenticator application を最初に登録する。
-6. Windows から同じ画面を開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
-7. macOS から同じ画面を開き、TOTP で変更を確認して Biometrics、Register biometrics、Add macOS Touch ID を選ぶ。
+5. Windows で `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、Authenticator application を最初に登録する。
+6. 同じ URL を Windows で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
+7. 同じ URL を macOS で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add macOS Touch ID を選ぶ。
 8. Windows Hello または Touch ID で変更を確認し、一時的な TOTP を削除する。
 9. Zero Trust の Team & Resources、Users で `voicevox.oss@gmail.com` を選び、MFA devices が Windows Hello と Touch ID の2個だけであることを確認する。
 10. Access settings の Allowed MFA methods を Biometrics だけに変更する。
