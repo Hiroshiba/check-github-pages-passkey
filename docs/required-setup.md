@@ -145,7 +145,7 @@ Secretファイルを指定して初回デプロイします。KV namespace は 
 pnpm wrangler deploy --secrets-file .env.initial-deploy
 ```
 
-デプロイ成功後すぐに `.env.initial-deploy` を削除します。初回デプロイでは Wrangler が KV namespace の ID を `wrangler.jsonc` に書き戻します。自動変更を確認し、`pnpm run worker:types` を再実行します。生成された KV ID と型定義は以後の checkout でも維持します。
+デプロイ成功後すぐに `.env.initial-deploy` を削除します。初回デプロイでは Wrangler が KV namespace を自動作成します。非対話デプロイで `wrangler.jsonc` に ID が書き戻されなかった場合は、デプロイ結果に表示された ID を `kv_namespaces` へ設定します。`pnpm run worker:types` を再実行し、KV ID と型定義を以後の checkout でも維持します。
 
 Worker の URL は `https://github-pages-deployment-approval.voicevox-oss.workers.dev` です。初回デプロイ後に Cloudflare Access をこの hostname の承認 URL だけへ設定します。
 

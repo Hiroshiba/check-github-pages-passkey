@@ -11,7 +11,12 @@
     "directory": "./dist/approval",
     "run_worker_first": ["/api/*", "/approval/*", "/github/*", "/health"],
   },
-  "kv_namespaces": [{ "binding": "DEPLOYMENT_REQUESTS" }],
+  "kv_namespaces": [
+    {
+      "binding": "DEPLOYMENT_REQUESTS",
+      "id": "f44f4e761248470fba53b59578693d24",
+    },
+  ],
   "secrets": {
     "required": [
       "DECISION_TOKEN_SECRET",
