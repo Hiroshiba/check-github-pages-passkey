@@ -91,10 +91,11 @@ App を対象リポジトリへインストールします。Deployment protecti
 - `EXPECTED_WORKFLOW_SHA` は production の先頭コミット `aba78a32b177696ecfe258155ecbd7d1eb1c1424`
 - `ACCESS_TEAM_DOMAIN` は `https://voicevox-oss-01.cloudflareaccess.com`
 - `APPROVER_EMAIL` は `voicevox.oss@gmail.com`
+- `GITHUB_APP_CLIENT_ID` は `Iv23liFVBGJBRsob9dZr`
 - `workers_dev` は有効
 - `preview_urls` は無効
 
-GitHub App の作成後に `GITHUB_APP_CLIENT_ID` を Client ID へ置き換えます。`ACCESS_AUD` は後で作る Access application の AUD tag へ置き換えます。
+`ACCESS_AUD` は後で作る Access application の AUD tag へ置き換えます。
 
 このリポジトリでは `ALLOWED_REPOSITORY_ID` を現在の ID `1320267202` に固定しています。別リポジトリへコピーした場合は GitHub API で数値 ID を取得して変更します。名前だけを信頼してはいけません。
 

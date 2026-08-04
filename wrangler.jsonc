@@ -29,7 +29,7 @@
     "ALLOWED_WORKFLOW_REF": "refs/heads/production",
     "APPROVER_EMAIL": "voicevox.oss@gmail.com",
     "EXPECTED_WORKFLOW_SHA": "aba78a32b177696ecfe258155ecbd7d1eb1c1424",
-    "GITHUB_APP_CLIENT_ID": "REPLACE_WITH_GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_ID": "Iv23liFVBGJBRsob9dZr",
   },
   "observability": {
     "enabled": true,
