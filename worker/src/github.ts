@@ -12,12 +12,14 @@ import {
 
 const GITHUB_API_ORIGIN = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
+const GITHUB_API_USER_AGENT = "check-github-pages-passkey-app";
 const MAXIMUM_GITHUB_RESPONSE_BYTES = 1024 * 1024;
 
 function githubHeaders(token: string): Headers {
   return new Headers({
     Accept: "application/vnd.github+json",
     Authorization: `Bearer ${token}`,
+    "User-Agent": GITHUB_API_USER_AGENT,
     "X-GitHub-Api-Version": GITHUB_API_VERSION,
   });
 }
@@ -65,7 +67,10 @@ async function fetchGetWithRetry(
   throw new UnreachableError("GitHub API のリトライ処理が終了しませんでした");
 }
 
-async function readGitHubJson(response: Response): Promise<unknown> {
+async function readGitHubJson(
+  response: Response,
+  operation: string,
+): Promise<unknown> {
   let body: Uint8Array;
   try {
     body = await readBoundedBody(response.body, MAXIMUM_GITHUB_RESPONSE_BYTES);
@@ -74,7 +79,17 @@ async function readGitHubJson(response: Response): Promise<unknown> {
       cause: error,
     });
   }
-  return parseJsonBytes(body, "GitHub API の JSON が不正です", 502);
+
+  try {
+    return parseJsonBytes(body, "GitHub API の JSON が不正です", 502);
+  } catch (error) {
+    const contentType = response.headers.get("Content-Type") ?? "なし";
+    const contentEncoding = response.headers.get("Content-Encoding") ?? "なし";
+    throw new ExternalServiceError(
+      `GitHub API の ${operation} 応答を JSON として解析できませんでした。HTTP ${response.status.toString()}、Content-Type ${contentType}、Content-Encoding ${contentEncoding}、${body.byteLength.toString()} bytes`,
+      { cause: error },
+    );
+  }
 }
 
 async function createAppJwt(
@@ -132,7 +147,7 @@ export async function createInstallationToken(
     );
   }
 
-  const body = await readGitHubJson(response);
+  const body = await readGitHubJson(response, "installation token");
   if (response.status !== 201) {
     throw new ExternalServiceError(
       `GitHub App installation token の取得に失敗しました。HTTP ${response.status.toString()}`,
@@ -161,7 +176,7 @@ export async function getWorkflowRun(
     installationToken,
     3,
   );
-  const body = await readGitHubJson(response);
+  const body = await readGitHubJson(response, "Workflow run");
 
   if (response.status !== 200) {
     throw new ExternalServiceError(
@@ -210,7 +225,7 @@ export async function reviewDeployment(
   }
 
   if (response.status !== 204) {
-    const body = await readGitHubJson(response);
+    const body = await readGitHubJson(response, "deployment protection review");
     throw new ExternalServiceError(
       `GitHub が承認結果を受理しませんでした。HTTP ${response.status.toString()}`,
       { cause: new Error(JSON.stringify(body)) },

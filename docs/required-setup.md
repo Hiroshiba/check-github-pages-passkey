@@ -195,30 +195,21 @@ Windows Hello と Touch ID を両方登録するには、一時的な TOTP を�
 2. Allowed MFA methods は一時的に Authenticator application と Biometrics を許可する。
 3. Use identity provider MFA は無効にする。
 4. Authentication duration は Require every login にする。
-5. Windows で `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、Authenticator application を最初に登録する。
-6. 同じ URL を Windows で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
-7. 同じ URL を macOS で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add macOS Touch ID を選ぶ。
-8. Windows Hello または Touch ID で変更を確認し、一時的な TOTP を削除する。
-9. Zero Trust の Team & Resources、Users で `voicevox.oss@gmail.com` を選び、MFA devices が Windows Hello と Touch ID の2個だけであることを確認する。
-10. Access settings の Allowed MFA methods を Biometrics だけに変更する。
+5. Apply global MFA settings by default を有効にする。
+6. Windows で `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、Authenticator application を最初に登録する。
+7. 同じ URL を Windows で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
+8. 同じ URL を macOS で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add macOS Touch ID を選ぶ。
+9. Windows Hello または Touch ID で変更を確認し、一時的な TOTP を削除する。
+10. Zero Trust の Team & Resources、Users で `voicevox.oss@gmail.com` を選び、MFA devices が Windows Hello と Touch ID の2個だけであることを確認する。
+11. Access settings の Allowed MFA methods を Biometrics だけに変更する。
 
 AAGUID の許可リストは設定しません。Windows Hello と Touch ID は端末ごとの platform authenticator であり、今回の情報だけでは固定すべき AAGUID を決められないためです。登録時には OS の認証画面が出たことを確認し、認証器名に端末名を付けます。
 
-初回デプロイ後、Cloudflare dashboard の Workers & Pages で `github-pages-deployment-approval` を選びます。Settings、Domains & Routes、workers.dev の順に開き、Enable Cloudflare Access を選びます。その後に Manage Access から自動作成された application を編集します。
+初回デプロイ後、Cloudflare dashboard の Workers & Pages で `github-pages-deployment-approval` を選びます。画面上部のドメインを開きます。設定タブの中ではありません。Worker URL のプロダクションに表示される `github-pages-deployment-approval.voicevox-oss.workers.dev` を確認します。`public` を選びます。「この Worker URL は Access のサインインが必要です」というダイアログに AUD と JWK URL が表示されれば Access は有効です。AUD を控え、Zero Trust の Access controls、Applications から自動作成された application を編集します。
 
 - Public hostname は `github-pages-deployment-approval.voicevox-oss.workers.dev`
-- Path は `/approval/authorize/*`
-- Allow policy の Include は Emails を選び、`voicevox.oss@gmail.com` だけを指定
-- Bypass policy は作らない
-- 同じ hostname と path に重なる別の Access application を作らない
-- Application の Session Duration は Immediate timeout
-- Allow policy の Session Duration も Immediate timeout
-- Application と Allow policy の MFA は Custom MFA settings
-- Allowed MFA methods は Biometrics だけ
-- Authentication duration は Require every login
-- Authenticate with Cloudflare One Client は無効
-
-MFA の Require every login は Access のログイン時だけ評価されます。既存の application session を残さないため、Application と Allow policy の Session Duration も Immediate timeout にします。Cloudflare One Client session はこの設定より優先されるため、この application では有効にしません。
+- Path の入力欄は `approval/authorize/*`
+- 「詳細」の「セッション期間」で Immediate timeout を選ぶ
 
 保護対象は `/approval/authorize/*` の GET だけです。この1リクエストで2分間有効な署名済み決定トークンを発行します。`/approval/decision/*` の POST は Access の外ですが、Worker が HMAC、期限、run ID、試行回数、リポジトリ ID、Deployment ID、GitHub の現在の状態を検証します。
 

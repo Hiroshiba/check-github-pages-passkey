@@ -25,7 +25,7 @@
     ],
   },
   "vars": {
-    "ACCESS_AUD": "0000000000000000000000000000000000000000000000000000000000000000",
+    "ACCESS_AUD": "d480b67ee970699f65b005edc24c9fd50662465992342415b8fff3c57eddb0cc",
     "ACCESS_TEAM_DOMAIN": "https://voicevox-oss-01.cloudflareaccess.com",
     "ALLOWED_ENVIRONMENT": "github-pages",
     "ALLOWED_REPOSITORY": "Hiroshiba/check-github-pages-passkey",
