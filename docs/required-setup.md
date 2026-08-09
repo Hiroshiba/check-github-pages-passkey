@@ -174,12 +174,13 @@ One-time PIN と App Launcher を次の順に設定します。Cloudflare dashbo
 
 1. Zero Trust の Integrations、Identity providers を開く。
 2. Add new identity provider から One-time PIN を追加して保存する。
-3. Access controls、Access settings の Manage your App Launcher で Manage を選ぶ。
-4. Policies タブで「新しいポリシーの作成」を選ぶ。
-5. ポリシー名を `承認者のみ`、アクションを Allow にする。
-6. Include のセレクターで Emails を選び、値を `voicevox.oss@gmail.com` にする。
-7. Require と Exclude は追加せず、ポリシーを保存する。
-8. Authentication タブを開き、One-time PIN だけを選んで保存する。
+3. Access controls、Access settings の Set your global session duration で Edit を選び、15 minutes にして保存する。
+4. Manage your App Launcher で Manage を選ぶ。
+5. Policies タブで「新しいポリシーの作成」を選ぶ。
+6. ポリシー名を `承認者のみ`、アクションを Allow にする。
+7. Include のセレクターで Emails を選び、値を `voicevox.oss@gmail.com` にする。
+8. Require と Exclude は追加せず、ポリシーを保存する。
+9. Authentication タブを開き、One-time PIN だけを選んで保存する。
 
 One-time PIN は最初の本人認証に使う login method です。後で設定する Windows Hello と Touch ID は、このログイン後に要求する independent MFA です。
 
@@ -194,7 +195,7 @@ Windows Hello と Touch ID を両方登録するには、一時的な TOTP を�
 1. Zero Trust の Access controls、Access settings で independent MFA を有効にする。
 2. Allowed MFA methods は一時的に Authenticator application と Biometrics を許可する。
 3. Use identity provider MFA は無効にする。
-4. Authentication duration は Require every login にする。
+4. Authentication duration は 15 minutes にする。
 5. Apply global MFA settings by default を有効にする。
 6. Windows で `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、Authenticator application を最初に登録する。
 7. 同じ URL を Windows で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
@@ -209,7 +210,9 @@ AAGUID の許可リストは設定しません。Windows Hello と Touch ID は�
 
 - Public hostname は `github-pages-deployment-approval.voicevox-oss.workers.dev`
 - Path の入力欄は `approval/authorize/*`
-- 「詳細」の「セッション期間」で Immediate timeout を選ぶ
+- 「詳細」の「セッション期間」で 15 minutes を選ぶ
+
+グローバルセッション、MFA セッション、承認 application のセッションはすべて15分です。同じ端末の同じブラウザでは、認証後15分以内の再承認で One-time PIN と端末内蔵認証器を再要求しません。15分経過後の次のアクセスで再認証を要求します。
 
 保護対象は `/approval/authorize/*` の GET だけです。この1リクエストで2分間有効な署名済み決定トークンを発行します。`/approval/decision/*` の POST は Access の外ですが、Worker が HMAC、期限、run ID、試行回数、リポジトリ ID、Deployment ID、GitHub の現在の状態を検証します。
 
@@ -239,7 +242,7 @@ gh workflow run .github/workflows/deploy-pages.yml \
 
 ビルド job は Environment、Pages write、ID token、Worker Secret を持ちません。ビルドが成功すると deploy job が github-pages Environment で待機します。
 
-承認用 Worker のトップページを開き、対象 run を選びます。Cloudflare Access で Windows Hello または Touch ID を完了した後に、リポジトリ、Workflow、ref、Workflow SHA、Environment、ソース SHA を確認して承認します。
+承認用 Worker のトップページを開き、対象 run を選びます。Cloudflare Access の認証セッションが切れている場合は Windows Hello または Touch ID を完了します。その後、リポジトリ、Workflow、ref、Workflow SHA、Environment、ソース SHA を確認して承認します。
 
 ## 本番利用前に必ず試験する
 
@@ -250,7 +253,8 @@ gh workflow run .github/workflows/deploy-pages.yml \
 - Webhook secret が異なる要求を Worker が拒否すること
 - 決定トークンが2分後に失効すること
 - Windows と macOS から承認し、それぞれ Windows Hello と Touch ID を要求されること
-- 同じブラウザで2回続けて承認し、どちらでも端末内蔵認証器を要求されること
+- 同じブラウザで認証後15分以内に再承認し、再認証なしで承認画面へ進めること
+- 15分経過後に再承認し、端末内蔵認証器を要求されること
 - Windows Hello の PIN が許可される端末では、PIN でも認証できることを既知の制約として記録すること
 - Workflow run の再実行でも新しい承認を要求すること
 - 承認後に同じトークンを再送してもデプロイ状態が変わらないこと

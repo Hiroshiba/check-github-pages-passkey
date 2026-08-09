@@ -1,6 +1,6 @@
 # GitHub Pages 端末内蔵認証器承認プロトタイプ
 
-main を通常開発用、production を固定デプロイ用として分離し、GitHub Pages の公開直前に Windows Hello または Touch ID を要求するプロトタイプです。
+main を通常開発用、production を固定デプロイ用として分離し、GitHub Pages の公開前に直近15分以内の Windows Hello または Touch ID 認証を要求するプロトタイプです。
 
 この構成は通常の Write 権限が侵害されても、Approval GitHub App と Cloudflare Access を通らずに GitHub Pages を更新できないことを目的にします。リポジトリの Admin、Organization Owner、Cloudflare 管理者の侵害は防げません。
 
