@@ -67,7 +67,7 @@ export async function verifyAccessIdentity(
       },
     );
   }
-  if (claims.data.email !== configuration.APPROVER_EMAIL) {
+  if (!configuration.ALLOWED_APPROVER_EMAILS.includes(claims.data.email)) {
     throw new HttpError("このアカウントには承認権限がありません", 403, {});
   }
 }

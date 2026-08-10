@@ -90,7 +90,7 @@ App を対象リポジトリへインストールします。Deployment protecti
 
 - `EXPECTED_WORKFLOW_SHA` は production の先頭コミット `aba78a32b177696ecfe258155ecbd7d1eb1c1424`
 - `ACCESS_TEAM_DOMAIN` は `https://voicevox-oss-01.cloudflareaccess.com`
-- `APPROVER_EMAIL` は `voicevox.oss@gmail.com`
+- `ALLOWED_APPROVER_EMAILS` は承認を許可するメールアドレスの一覧
 - `GITHUB_APP_CLIENT_ID` は `Iv23liFVBGJBRsob9dZr`
 - `workers_dev` は有効
 - `preview_urls` は無効
@@ -227,6 +227,20 @@ pnpm wrangler deploy
 ```
 
 Worker のトップページと `/health` が応答することを確認します。`/health` が `200` と `{"status":"ok"}` を返せば、必須設定と Secret の形式検証は成功です。その後、github-pages Environment の Deployment protection rules で Approval GitHub App を有効化します。
+
+## 承認者を追加する
+
+承認者本人の Cloudflare dashboard account と管理権限は不要です。承認者ごとに別のメールアドレスと端末内蔵認証器を登録します。
+
+1. `wrangler.jsonc` の `ALLOWED_APPROVER_EMAILS` にメールアドレスを追加する。
+2. `pnpm run worker:types`、`pnpm run check`、`pnpm wrangler deploy` を順に実行する。
+3. Zero Trust の Access コントロール、Access 設定の順に開く。「App Launcher を管理する」の「管理」を選び、ポリシーで `承認者のみ` policy を開く。Include、Emails に同じメールアドレスを追加する。
+4. Zero Trust の Access コントロール、アプリケーション、`github-pages-deployment-approval - Cloudflare Workers`、ポリシーの順に開く。既存の Allow policy の Include、Emails に同じメールアドレスを追加する。
+5. 承認者本人が `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、自分のメールアドレスと One-time PIN でログインする。
+6. Biometrics、Register biometrics の順に選び、Windows Hello または Touch ID を登録する。
+7. 承認用 Worker を開き、登録した端末内蔵認証器で承認画面へ進めることを確認する。
+
+初回の MFA device 登録では既存の MFA device による確認は不要です。Worker の許可一覧と2個の Access policy のどれか1個でも更新されていなければ承認できません。
 
 ## デプロイを実行する
 

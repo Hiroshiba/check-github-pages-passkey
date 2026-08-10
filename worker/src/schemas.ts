@@ -15,6 +15,14 @@ const expectedWorkflowShaSchema = commitShaSchema.refine(
   "production ブランチのコミット SHA を設定してください",
 );
 
+const allowedApproverEmailsSchema = z
+  .array(z.email().transform((value) => value.toLowerCase()))
+  .min(1)
+  .refine(
+    (values) => new Set(values).size === values.length,
+    "承認者のメールアドレスが重複しています",
+  );
+
 export const runtimeConfigurationSchema = z.object({
   ACCESS_AUD: z
     .string()
@@ -24,12 +32,12 @@ export const runtimeConfigurationSchema = z.object({
     .string()
     .regex(/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/)
     .refine((value) => !value.includes("replace-with")),
+  ALLOWED_APPROVER_EMAILS: allowedApproverEmailsSchema,
   ALLOWED_ENVIRONMENT: z.literal("github-pages"),
   ALLOWED_REPOSITORY: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
   ALLOWED_REPOSITORY_ID: z.coerce.number().int().positive(),
   ALLOWED_WORKFLOW_PATH: z.literal(".github/workflows/deploy-pages.yml"),
   ALLOWED_WORKFLOW_REF: z.literal("refs/heads/production"),
-  APPROVER_EMAIL: z.email().transform((value) => value.toLowerCase()),
   EXPECTED_WORKFLOW_SHA: expectedWorkflowShaSchema,
   GITHUB_APP_CLIENT_ID: nonPlaceholderSchema,
 });
