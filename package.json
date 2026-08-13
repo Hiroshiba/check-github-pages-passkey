@@ -18,6 +18,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "terraform:format": "terraform -chdir=terraform/cloudflare fmt",
+    "terraform:format:check": "terraform -chdir=terraform/cloudflare fmt -check -recursive",
+    "terraform:validate": "terraform -chdir=terraform/cloudflare validate",
     "typecheck": "tsc --build --noEmit",
     "worker:dry-run": "pnpm run build:approval && wrangler deploy --dry-run",
     "worker:types": "wrangler types"

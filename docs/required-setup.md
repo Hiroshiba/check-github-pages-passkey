@@ -9,24 +9,20 @@
 - 通常利用者の権限を Write 以下にする
 - Maintain、Admin、Organization Owner は侵害時に設定を変更できると理解する
 - break-glass 用管理者と Cloudflare 管理者の認証を承認専用認証と分離する
-- Node.js 24 と pnpm 10 を用意する
-- OpenSSL を用意する
-- `voicevox.oss@gmail.com` が One-time PIN で Access にログインできるようにする
+- Node.js 24、pnpm 10、Terraform 1.14、OpenSSL を用意する
+- `voicevox.oss@gmail.com` と `hihokaruta@gmail.com` が One-time PIN を受信できることを確認する
 
 GitHub の custom deployment protection rule は Public Preview です。本番移行前に再実行を含む試験が必要です。
 
-個人リポジトリの所有者は Admin から下げられません。このリポジトリを個人アカウントで試す間は仕組みの動作確認に限定します。通常利用アカウントの侵害に耐える本番構成では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
+個人リポジトリの所有者は Admin から下げられません。このリポジトリを個人アカウントで試す間は仕組みの動作確認に限定します。本番構成では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
 
-このプロトタイプで使う値は確定済みです。
+このリポジトリでは次の値を使います。
 
 - Zero Trust team domain は `https://voicevox-oss-01.cloudflareaccess.com`
 - 承認用ホスト名は `github-pages-deployment-approval.voicevox-oss.workers.dev`
-- 承認専用メールアドレスは `voicevox.oss@gmail.com`
 - 承認用認証器は Windows Hello と macOS Touch ID
 
-Windows Hello と Touch ID は Cloudflare 上では Security key ではなく Biometrics に分類されます。どちらも端末内蔵の WebAuthn platform authenticator です。Windows Hello は端末設定によって PIN でも認証できるため、指紋や顔だけを必須にはできません。このプロトタイプは取り外し可能な物理セキュリティキーを必須にする元の要件とは異なります。
-
-独自ドメインは不要です。Cloudflare Access は `workers.dev` hostname に明示的に設定できます。`workers.dev` は試験用途向けのため、本番運用へ移す場合は Cloudflare で管理する独自ドメインへ変更します。
+Windows Hello と Touch ID は Cloudflare 上では Biometrics に分類されます。Windows Hello は端末設定によって PIN でも認証できるため、指紋や顔だけを必須にはできません。取り外し可能な物理セキュリティキーだけを必須にする構成ではありません。
 
 ## main と production を準備する
 
@@ -84,40 +80,74 @@ Contents、Actions write、Pages、Administration の権限は付けません。
 
 App を対象リポジトリへインストールします。Deployment protection rules での有効化は Worker の設定完了後に行います。
 
+## Cloudflare を Terraform へ取り込む
+
+Cloudflare 管理者が対象 account だけに限定した API token を作ります。次の read と write 権限が必要です。
+
+- Access: Apps and Policies
+- Access: Organizations, Identity Providers, and Groups
+- Workers KV Storage
+
+Dashboard の My Profile、API Tokens から Create Token、Custom token の順に選びます。3個の Account permission は Edit にし、Account Resources は対象 account だけを Include します。作業時間に合わせた TTL を設定し、作成後に一度だけ表示される token をパスワードマネージャーへ保存します。
+
+Cloudflare account ID と token を環境変数へ設定します。値をコマンド引数やリポジトリへ保存しません。
+
+```shell
+read -rsp "Cloudflare API token: " CLOUDFLARE_API_TOKEN
+export CLOUDFLARE_API_TOKEN
+printf '\n'
+export TF_VAR_cloudflare_account_id="32文字のCloudflare account ID"
+terraform -chdir=terraform/cloudflare init
+terraform -chdir=terraform/cloudflare plan -out=cloudflare.tfplan
+terraform -chdir=terraform/cloudflare show cloudflare.tfplan
+terraform -chdir=terraform/cloudflare apply cloudflare.tfplan
+terraform -chdir=terraform/cloudflare output
+```
+
+既存の Access application、App Launcher、One-time PIN、KV namespace は自動で state へ import されます。Zero Trust organization は import 非対応のため既存でも create と表示され、現在の endpoint を更新して state に入ります。2個の reusable policy も新規作成され、既存 application の policy と置き換わります。それ以外に create が表示された場合や、destroy や置換がある場合は apply しません。account ID、token の対象 account、`wrangler.jsonc` の AUD と KV ID を確認します。
+
+Terraform は organization 全体への MFA 適用を無効にし、通常の既定時間を24時間にします。承認 application と policy だけが15分のセッションと Biometrics MFA を要求します。One-time PIN は organization の SSO セッションにより15分後も省略される場合がありますが、Windows Hello または Touch ID は15分後に再要求されます。
+
+詳しい管理境界と移行時の確認項目は [Cloudflare Terraform 運用](cloudflare-terraform.md)にあります。
+
+## MFA device を登録する
+
+Terraform 適用後、承認者ごとに次の操作が必要です。この操作は本人の認証器を使うため自動化できません。
+
+1. `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開く。
+2. 自分のメールアドレスと One-time PIN でログインする。
+3. Biometrics、Register biometrics の順に選ぶ。
+4. Windows Hello または Touch ID を登録する。
+5. 認証器名に端末を識別できる名前を付ける。
+6. Cloudflare の Team & Resources、Users で登録内容を確認する。
+
+最初の MFA device の登録では既存 device による確認はありません。承認者を Access policy へ追加してから本人が登録するまでの時間を短くします。
+
+同じ承認者が別端末の platform authenticator を追加する場合は、登録済み device による確認が必要です。端末をまたいで確認できない場合だけ、organization の `allowed_authenticators` に `totp` を一時追加して Terraform を適用します。TOTP を使って別端末を登録した後、TOTP device を削除し、Terraform の許可を Biometrics だけへ戻します。承認 policy は作業中も Biometrics だけを許可します。
+
+AAGUID の許可リストは設定しません。Windows Hello と Touch ID の AAGUID を今回の情報だけでは固定できないためです。
+
 ## Worker を準備する
 
-`wrangler.jsonc` には次の非機密情報を設定済みです。
+Terraform の出力と `wrangler.jsonc` の `ACCESS_AUD` と KV namespace ID が一致することを確認します。不一致が報告された場合は Terraform の出力値へ更新します。
 
-- `EXPECTED_WORKFLOW_SHA` は production の先頭コミット `aba78a32b177696ecfe258155ecbd7d1eb1c1424`
-- `ACCESS_TEAM_DOMAIN` は `https://voicevox-oss-01.cloudflareaccess.com`
-- `ALLOWED_APPROVER_EMAILS` は承認を許可するメールアドレスの一覧
-- `GITHUB_APP_CLIENT_ID` は `Iv23liFVBGJBRsob9dZr`
-- `workers_dev` は有効
-- `preview_urls` は無効
+`wrangler.jsonc` の次の値も確認します。
 
-`ACCESS_AUD` は後で作る Access application の AUD tag へ置き換えます。
+- `EXPECTED_WORKFLOW_SHA` は production の先頭コミット
+- `ALLOWED_REPOSITORY_ID` は GitHub API が返す数値 ID
+- `GITHUB_APP_CLIENT_ID` は作成した GitHub App の Client ID
+- `ALLOWED_APPROVER_EMAILS` は承認を許可する全メールアドレス
 
-このリポジトリでは `ALLOWED_REPOSITORY_ID` を現在の ID `1320267202` に固定しています。別リポジトリへコピーした場合は GitHub API で数値 ID を取得して変更します。名前だけを信頼してはいけません。
-
-`ACCESS_AUD` は Access application の作成前には取得できません。初回デプロイだけはゼロのプレースホルダーを残します。この時点の Worker は作成用であり、`/health` は失敗し、承認要求も拒否します。
-
-Wrangler の認証先が想定した Cloudflare account であることを確認します。未ログインまたは別の account なら `pnpm wrangler login` を実行してから再確認します。
+Wrangler の認証先を確認し、依存関係と静的検査を実行します。
 
 ```shell
 pnpm wrangler whoami
-```
-
-依存関係、生成型、静的検査を確認します。
-
-Worker のデプロイは、内容を確認したローカル checkout から信頼できる管理者が実行します。Cloudflare API token を GitHub Actions やこのリポジトリへ渡してはいけません。
-
-```shell
 pnpm install --frozen-lockfile
 pnpm run worker:types
 pnpm run check
 ```
 
-`wrangler.jsonc` は3個の必須 Secret を宣言しています。新規 Worker は `wrangler secret put` より先に作れないため、初回デプロイでは3個を Secret ファイルから同時に登録します。
+Worker のデプロイは、内容を確認したローカル checkout から信頼できる管理者が実行します。Cloudflare API token を GitHub Actions やこのリポジトリへ渡しません。
 
 GitHub App の private key を PKCS#8 に変換します。入力元と出力先はリポジトリの外に置きます。
 
@@ -127,7 +157,7 @@ openssl pkcs8 -topk8 -nocrypt \
   -out /安全な場所/github-app-private-key.pkcs8.pem
 ```
 
-リポジトリ直下に一時ファイル `.env.initial-deploy` を作り、次の形式で値を入力します。このファイルは `.gitignore` の `.env.*` に一致しますが、Git の状態も必ず確認します。
+リポジトリ直下に一時ファイル `.env.initial-deploy` を作り、3個の Secret を入力します。このファイルは `.gitignore` の対象ですが、Git の状態も必ず確認します。
 
 ```dotenv
 DECISION_TOKEN_SECRET="パスワードマネージャーで生成した32文字以上の値"
@@ -139,114 +169,36 @@ PKCS#8へ変換したprivate key
 """
 ```
 
-Secretファイルを指定して初回デプロイします。KV namespace は Wrangler が binding から自動作成します。
-
 ```shell
 pnpm wrangler deploy --secrets-file .env.initial-deploy
 ```
 
-デプロイ成功後すぐに `.env.initial-deploy` を削除します。初回デプロイでは Wrangler が KV namespace を自動作成します。非対話デプロイで `wrangler.jsonc` に ID が書き戻されなかった場合は、デプロイ結果に表示された ID を `kv_namespaces` へ設定します。`pnpm run worker:types` を再実行し、KV ID と型定義を以後の checkout でも維持します。
+デプロイ成功後すぐに `.env.initial-deploy` を削除します。Secret と秘密鍵をリポジトリ、Terraform state、`wrangler.jsonc`、GitHub Actions に永続保存しません。
 
-Worker の URL は `https://github-pages-deployment-approval.voicevox-oss.workers.dev` です。初回デプロイ後に Cloudflare Access をこの hostname の承認 URL だけへ設定します。
-
-初回デプロイ後に Secret を更新するときは対話入力します。
+Secret の更新には対話入力を使います。
 
 ```shell
 pnpm wrangler secret put DECISION_TOKEN_SECRET
 pnpm wrangler secret put GITHUB_WEBHOOK_SECRET
-openssl pkcs8 -topk8 -nocrypt -in github-app-private-key.pem |
+openssl pkcs8 -topk8 -nocrypt -in /安全な場所/github-app-private-key.pem |
   pnpm wrangler secret put GITHUB_APP_PRIVATE_KEY
 ```
 
-各値の意味は次のとおりです。
+Worker のトップページと `/health` を確認します。`/health` が `200` と `{"status":"ok"}` を返した後、github-pages Environment の Deployment protection rules で Approval GitHub App を有効化します。
 
-- `DECISION_TOKEN_SECRET` はパスワードマネージャーで生成した32文字以上の別の値
-- `GITHUB_WEBHOOK_SECRET` は GitHub App に設定した Webhook secret と同じ値
-- `GITHUB_APP_PRIVATE_KEY` は GitHub App の private key を PKCS#8 へ変換した PEM 全文
+## 承認者を変更する
 
-GitHub からダウンロードした秘密鍵はリポジトリの外へ置きます。更新時は `openssl pkcs8` の出力をファイルへ保存せず Wrangler に渡します。
+承認者の追加では `wrangler.jsonc` の `ALLOWED_APPROVER_EMAILS` だけを編集します。Terraform を先に適用し、Worker を後からデプロイします。その後、承認者本人が MFA device を登録します。
 
-値をコマンド引数へ書かず、通常の Secret は対話入力を使います。Secret と秘密鍵をリポジトリ、`.env`、`wrangler.jsonc`、GitHub Actions に永続保存してはいけません。一時 Secret ファイルは初回デプロイ直後に削除します。
+承認者の削除では同じ一覧からメールアドレスを削除し、Worker を先にデプロイしてから Terraform を適用します。
 
-## Cloudflare Access を設定する
-
-One-time PIN と App Launcher を次の順に設定します。Cloudflare dashboard は日本語表示でも一部の項目名が英語になることがあります。
-
-1. Zero Trust の Integrations、Identity providers を開く。
-2. Add new identity provider から One-time PIN を追加して保存する。
-3. Access controls、Access settings の Set your global session duration で Edit を選び、15 minutes にして保存する。
-4. Manage your App Launcher で Manage を選ぶ。
-5. Policies タブで「新しいポリシーの作成」を選ぶ。
-6. ポリシー名を `承認者のみ`、アクションを Allow にする。
-7. Include のセレクターで Emails を選び、値を `voicevox.oss@gmail.com` にする。
-8. Require と Exclude は追加せず、ポリシーを保存する。
-9. Authentication タブを開き、One-time PIN だけを選んで保存する。
-
-One-time PIN は最初の本人認証に使う login method です。後で設定する Windows Hello と Touch ID は、このログイン後に要求する independent MFA です。
-
-`https://voicevox-oss-01.cloudflareaccess.com` を開き、`voicevox.oss@gmail.com` を入力して Send login code を選びます。メールで届いた PIN を入力できれば本人認証は成功です。PIN の入力後に利用可能な application がないという画面が出ても、Access application をまだ作成していない段階では問題ありません。
-
-MFA device の登録画面は、管理者向けの Manage your App Launcher にはありません。ログインした利用者が App Launcher の Account、MFA devices から開く画面です。application がない段階では、次の直接 URL を使います。
-
-`https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice`
-
-Windows Hello と Touch ID を両方登録するには、一時的な TOTP を登録確認用に使います。別端末で認証器を追加するときは、登録済みの independent MFA device による確認が必要なためです。承認 application を有効にする前に TOTP を削除します。
-
-1. Zero Trust の Access controls、Access settings で independent MFA を有効にする。
-2. Allowed MFA methods は一時的に Authenticator application と Biometrics を許可する。
-3. Use identity provider MFA は無効にする。
-4. Authentication duration は 15 minutes にする。
-5. Apply global MFA settings by default を有効にする。
-6. Windows で `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、Authenticator application を最初に登録する。
-7. 同じ URL を Windows で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add Windows Hello を選ぶ。
-8. 同じ URL を macOS で開き、TOTP で変更を確認して Biometrics、Register biometrics、Add macOS Touch ID を選ぶ。
-9. Windows Hello または Touch ID で変更を確認し、一時的な TOTP を削除する。
-10. Zero Trust の Team & Resources、Users で `voicevox.oss@gmail.com` を選び、MFA devices が Windows Hello と Touch ID の2個だけであることを確認する。
-11. Access settings の Allowed MFA methods を Biometrics だけに変更する。
-
-AAGUID の許可リストは設定しません。Windows Hello と Touch ID は端末ごとの platform authenticator であり、今回の情報だけでは固定すべき AAGUID を決められないためです。登録時には OS の認証画面が出たことを確認し、認証器名に端末名を付けます。
-
-初回デプロイ後、Cloudflare dashboard の Workers & Pages で `github-pages-deployment-approval` を選びます。画面上部のドメインを開きます。設定タブの中ではありません。Worker URL のプロダクションに表示される `github-pages-deployment-approval.voicevox-oss.workers.dev` を確認します。`public` を選びます。「この Worker URL は Access のサインインが必要です」というダイアログに AUD と JWK URL が表示されれば Access は有効です。AUD を控え、Zero Trust の Access controls、Applications から自動作成された application を編集します。
-
-- Public hostname は `github-pages-deployment-approval.voicevox-oss.workers.dev`
-- Path の入力欄は `approval/authorize/*`
-- 「詳細」の「セッション期間」で 15 minutes を選ぶ
-
-グローバルセッション、MFA セッション、承認 application のセッションはすべて15分です。同じ端末の同じブラウザでは、認証後15分以内の再承認で One-time PIN と端末内蔵認証器を再要求しません。15分経過後の次のアクセスで再認証を要求します。
-
-保護対象は `/approval/authorize/*` の GET だけです。この1リクエストで2分間有効な署名済み決定トークンを発行します。`/approval/decision/*` の POST は Access の外ですが、Worker が HMAC、期限、run ID、試行回数、リポジトリ ID、Deployment ID、GitHub の現在の状態を検証します。
-
-`/github/webhook` は Access の対象外です。GitHub の `X-Hub-Signature-256` を Worker が検証します。Worker hostname 全体を Access で保護すると GitHub Webhook まで遮断するため、必ず path を限定します。
-
-Access application の AUD tag を `wrangler.jsonc` の `ACCESS_AUD` に設定し、Worker を再デプロイします。
-
-```shell
-pnpm run worker:types
-pnpm run check
-pnpm wrangler deploy
-```
-
-Worker のトップページと `/health` が応答することを確認します。`/health` が `200` と `{"status":"ok"}` を返せば、必須設定と Secret の形式検証は成功です。その後、github-pages Environment の Deployment protection rules で Approval GitHub App を有効化します。
-
-## 承認者を追加する
-
-承認者本人の Cloudflare dashboard account と管理権限は不要です。承認者ごとに別のメールアドレスと端末内蔵認証器を登録します。
-
-1. `wrangler.jsonc` の `ALLOWED_APPROVER_EMAILS` にメールアドレスを追加する。
-2. `pnpm run worker:types`、`pnpm run check`、`pnpm wrangler deploy` を順に実行する。
-3. Zero Trust の Access コントロール、Access 設定の順に開く。「App Launcher を管理する」の「管理」を選び、ポリシーで `承認者のみ` policy を開く。Include、Emails に同じメールアドレスを追加する。
-4. Zero Trust の Access コントロール、アプリケーション、`github-pages-deployment-approval - Cloudflare Workers`、ポリシーの順に開く。既存の Allow policy の Include、Emails に同じメールアドレスを追加する。
-5. 承認者本人が `https://voicevox-oss-01.cloudflareaccess.com/AddMfaDevice` を開き、自分のメールアドレスと One-time PIN でログインする。
-6. Biometrics、Register biometrics の順に選び、Windows Hello または Touch ID を登録する。
-7. 承認用 Worker を開き、登録した端末内蔵認証器で承認画面へ進めることを確認する。
-
-初回の MFA device 登録では既存の MFA device による確認は不要です。Worker の許可一覧と2個の Access policy のどれか1個でも更新されていなければ承認できません。
+順序の理由とコマンドは [Cloudflare Terraform 運用](cloudflare-terraform.md)を参照してください。
 
 ## デプロイを実行する
 
 main から公開したい40文字のコミット SHA を選びます。Workflow はその SHA が現在の main から到達可能かを、依存関係の実行前に検証します。
 
-GitHub Actions の画面で `固定 GitHub Pages デプロイ` を選び、実行 branch に production、入力にソース SHA を指定します。CLI を使う場合は次の形です。
+GitHub Actions の画面で `固定 GitHub Pages デプロイ` を選び、実行 branch に production、入力にソース SHA を指定します。CLI では次の形です。
 
 ```shell
 gh workflow run .github/workflows/deploy-pages.yml \
@@ -256,7 +208,7 @@ gh workflow run .github/workflows/deploy-pages.yml \
 
 ビルド job は Environment、Pages write、ID token、Worker Secret を持ちません。ビルドが成功すると deploy job が github-pages Environment で待機します。
 
-承認用 Worker のトップページを開き、対象 run を選びます。Cloudflare Access の認証セッションが切れている場合は Windows Hello または Touch ID を完了します。その後、リポジトリ、Workflow、ref、Workflow SHA、Environment、ソース SHA を確認して承認します。
+承認用 Worker のトップページを開き、対象 run を選びます。Cloudflare Access の MFA セッションが切れている場合は Windows Hello または Touch ID を完了します。リポジトリ、Workflow、ref、Workflow SHA、Environment、ソース SHA を確認して承認します。
 
 ## 本番利用前に必ず試験する
 
@@ -267,9 +219,9 @@ gh workflow run .github/workflows/deploy-pages.yml \
 - Webhook secret が異なる要求を Worker が拒否すること
 - 決定トークンが2分後に失効すること
 - Windows と macOS から承認し、それぞれ Windows Hello と Touch ID を要求されること
-- 同じブラウザで認証後15分以内に再承認し、再認証なしで承認画面へ進めること
-- 15分経過後に再承認し、端末内蔵認証器を要求されること
-- Windows Hello の PIN が許可される端末では、PIN でも認証できることを既知の制約として記録すること
+- 同じブラウザで認証後15分以内に再承認し、MFA なしで承認画面へ進めること
+- 15分経過後に再承認し、Windows Hello または Touch ID を要求されること
+- Windows Hello の PIN が許可される端末では PIN でも認証できることを既知の制約として記録すること
 - Workflow run の再実行でも新しい承認を要求すること
 - 承認後に同じトークンを再送してもデプロイ状態が変わらないこと
 - production ruleset に通常利用者の bypass がないこと
@@ -290,4 +242,4 @@ production の更新は通常運用にしません。更新が必要な場合は
 6. Worker を再デプロイする。
 7. 拒否試験と正常な承認試験をやり直す。
 
-production と `EXPECTED_WORKFLOW_SHA` の更新間は承認が失敗します。古い SHA と新しい SHA を同時に許可してはいけません。
+production と `EXPECTED_WORKFLOW_SHA` の更新間は承認が失敗します。古い SHA と新しい SHA を同時に許可しません。

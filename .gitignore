@@ -7,3 +7,10 @@ dist/
 .wrangler/
 coverage/
 *.tsbuildinfo
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+!*.tfvars.example

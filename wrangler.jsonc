@@ -9,27 +9,27 @@
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist/approval",
-    "run_worker_first": ["/api/*", "/approval/*", "/github/*", "/health"],
+    "run_worker_first": ["/api/*", "/approval/*", "/github/*", "/health"]
   },
   "kv_namespaces": [
     {
       "binding": "DEPLOYMENT_REQUESTS",
-      "id": "f44f4e761248470fba53b59578693d24",
-    },
+      "id": "f44f4e761248470fba53b59578693d24"
+    }
   ],
   "secrets": {
     "required": [
       "DECISION_TOKEN_SECRET",
       "GITHUB_APP_PRIVATE_KEY",
-      "GITHUB_WEBHOOK_SECRET",
-    ],
+      "GITHUB_WEBHOOK_SECRET"
+    ]
   },
   "vars": {
     "ACCESS_AUD": "d480b67ee970699f65b005edc24c9fd50662465992342415b8fff3c57eddb0cc",
     "ACCESS_TEAM_DOMAIN": "https://voicevox-oss-01.cloudflareaccess.com",
     "ALLOWED_APPROVER_EMAILS": [
       "voicevox.oss@gmail.com",
-      "hihokaruta@gmail.com",
+      "hihokaruta@gmail.com"
     ],
     "ALLOWED_ENVIRONMENT": "github-pages",
     "ALLOWED_REPOSITORY": "Hiroshiba/check-github-pages-passkey",
@@ -37,11 +37,11 @@
     "ALLOWED_WORKFLOW_PATH": ".github/workflows/deploy-pages.yml",
     "ALLOWED_WORKFLOW_REF": "refs/heads/production",
     "EXPECTED_WORKFLOW_SHA": "aba78a32b177696ecfe258155ecbd7d1eb1c1424",
-    "GITHUB_APP_CLIENT_ID": "Iv23liFVBGJBRsob9dZr",
+    "GITHUB_APP_CLIENT_ID": "Iv23liFVBGJBRsob9dZr"
   },
   "observability": {
     "enabled": true,
     "logs": { "head_sampling_rate": 1 },
-    "traces": { "enabled": true, "head_sampling_rate": 0.01 },
-  },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
 }

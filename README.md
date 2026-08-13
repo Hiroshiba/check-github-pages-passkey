@@ -13,6 +13,7 @@ Windows Hello は端末設定によって PIN でも認証できます。取り�
 - `worker` は GitHub Webhook、Access JWT、GitHub App API を扱う Cloudflare Worker
 - `.github/workflows/deploy-pages.yml` は production ref からだけ実行する固定 Workflow
 - `wrangler.jsonc` は Worker の非機密設定と binding
+- `terraform/cloudflare` は Cloudflare Access と Workers KV の構成
 
 GitHub の仕様により `workflow_dispatch` の定義ファイルは既定ブランチにも必要です。そのため Workflow ファイルは main にも存在します。実際のデプロイでは production ref のファイルだけを実行し、github-pages Environment の deployment branch rule でも production 以外を拒否します。
 
@@ -30,7 +31,7 @@ Worker は次を Webhook 受信時と決定直前に検証します。
 
 KV は承認要求の一覧に使います。承認の根拠には使わず、GitHub API から現在の Workflow run を再取得します。
 
-セットアップには GitHub と Cloudflare の手作業が必要です。[必須セットアップ](docs/required-setup.md)を上から順に実行してください。Custom deployment protection rule は 2026年8月4日時点で Public Preview です。
+Cloudflare Access、One-time PIN、承認者 policy、Workers KV は Terraform で管理します。認証器の登録や API token の作成など、本人または管理者にしかできない作業は残ります。[必須セットアップ](docs/required-setup.md)を上から順に実行してください。Cloudflare の管理境界は [Cloudflare Terraform 運用](docs/cloudflare-terraform.md)にまとめています。Custom deployment protection rule は 2026年8月4日時点で Public Preview です。
 
 ローカルで静的確認するには Node.js 24 と pnpm 10 を使います。
 
@@ -40,7 +41,7 @@ pnpm run check
 VITE_SOURCE_SHA=1111111111111111111111111111111111111111 pnpm run build:site
 ```
 
-実際の Secret はリポジトリへ保存しません。Worker の Secret 名だけを `wrangler.jsonc` に宣言しています。
+実際の Secret はリポジトリや Terraform state へ保存しません。Worker の Secret 名だけを `wrangler.jsonc` に宣言しています。
 
 参考資料:
 
