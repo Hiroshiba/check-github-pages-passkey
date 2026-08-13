@@ -1,4 +1,4 @@
-# Cloudflare Terraform 運用
+# Cloudflare デプロイ
 
 `terraform/cloudflare` は承認機構が使う次の Cloudflare リソースを管理します。
 
@@ -8,86 +8,81 @@
 - 承認 URL だけを保護する Access application と policy
 - 承認要求を保存する Workers KV namespace
 
-Worker のコード、静的 assets、binding、非機密変数、Secret は Wrangler が管理します。同じリソースを Terraform と Wrangler の両方から管理しません。Terraform は `wrangler.jsonc` を読み、承認者一覧、現在の Access AUD、KV namespace ID を参照します。
+Worker のコード、静的 assets、binding、非機密変数は Wrangler が管理します。Worker Secret は Cloudflare に一度登録し、以降のデプロイでも保持します。同じリソースを Terraform と Wrangler の両方から管理しません。
 
-Cloudflare の仕様上、independent MFA の利用許可は organization 設定が必須です。Terraform は organization 全体への MFA 適用を無効にし、organization の通常のセッションと MFA の既定値を24時間にします。承認 application のセッションと biometrics MFA の再認証間隔は15分です。MFA 以外の organization 設定は現在値を読み取り、そのまま更新要求へ含めます。
+Terraform は `wrangler.jsonc` から承認者一覧、Access AUD、KV namespace ID を読みます。organization 全体への MFA 適用は無効にし、通常の SSO セッションと MFA の既定値を24時間にします。承認 application のセッションと Biometrics MFA の再認証間隔だけを15分にします。
 
-この構成では、One-time PIN の再入力が15分ごとに発生するとは限りません。organization の SSO セッションが有効でも、承認 URL では15分を過ぎると Windows Hello または Touch ID を再要求します。
+One-time PIN の再入力は15分ごとに発生するとは限りません。organization の SSO セッションが有効でも、承認 URL では15分を過ぎると Windows Hello または Touch ID を再要求します。
 
-## 初回移行
+## GitHub Workflow
 
-Terraform 1.14 を用意します。Cloudflare API token は対象 account のみに限定し、次の read と write 権限を付けます。
+`.github/workflows/deploy-cloudflare.yml` は production ref 上の固定定義からだけ実行します。デプロイ対象には main から到達できる40文字のコミット SHA を指定します。
 
-- Access: Apps and Policies
-- Access: Organizations, Identity Providers, and Groups
-- Workers KV Storage
+Workflow は次の順で処理します。
 
-Cloudflare 管理者は Dashboard の My Profile、API Tokens から Create Token を選び、Custom token を作ります。3個の Account permission は Edit にし、Account Resources は対象 account だけを Include します。作業時間に合わせた TTL も設定します。token は一度しか表示されないため、パスワードマネージャーへ保存します。
+1. production ref、main からの到達性、`EXPECTED_WORKFLOW_SHA` を権限なしで検証する。
+2. `cloudflare-plan` Environment の承認後に R2 の remote state をロックして plan を作る。
+3. plan を1日だけ artifact に保存し、SHA-256 を記録する。
+4. `cloudflare-production` Environment の承認後に同じ plan のハッシュを検証して適用する。
+5. Terraform の出力と `wrangler.jsonc` の AUD と KV namespace ID が一致することを検証する。
+6. 静的検証を通過した承認用 Worker を Wrangler でデプロイする。
 
-account ID は Dashboard の account Overview または `pnpm wrangler whoami` で確認します。token はファイルやシェル履歴へ保存せず、環境変数で Terraform に渡します。
+最初の承認では、指定されたソース SHA の変更内容を確認します。Terraform は plan 中にもデータソースや Provider のコードを実行するため、未確認のソースへ plan 用資格情報を渡しません。
+
+2回目の承認では、plan job のログに表示された差分を確認します。destroy、意図しない置換、対象外リソースの変更があれば拒否します。
+
+plan artifact は1日で失効します。期限内に2回目の承認を完了できなかった場合は、同じソース SHA から新しい plan を作ります。
+
+Cloudflare 設定をデプロイするには、GitHub Actions で `固定 Cloudflare デプロイ` を選び、実行 branch に production、入力にソース SHA を指定します。
 
 ```shell
-read -rsp "Cloudflare API token: " CLOUDFLARE_API_TOKEN
-export CLOUDFLARE_API_TOKEN
-printf '\n'
-export TF_VAR_cloudflare_account_id="32文字のCloudflare account ID"
-terraform -chdir=terraform/cloudflare init
-terraform -chdir=terraform/cloudflare plan -out=cloudflare.tfplan
-terraform -chdir=terraform/cloudflare show cloudflare.tfplan
-terraform -chdir=terraform/cloudflare apply cloudflare.tfplan
+gh workflow run .github/workflows/deploy-cloudflare.yml \
+  --ref production \
+  --field source_sha=デプロイする40文字のコミットSHA
 ```
 
-既存の Access application、App Launcher、One-time PIN、reusable policy、KV namespace は Cloudflare API から検出し、import block が state へ取り込みます。承認 application は AUD と保護対象 URL で特定します。該当リソースがなければ新規作成します。候補が複数ある場合は処理を中断します。
+Terraform は常に Worker より先に適用します。承認者を追加する途中では Worker の古い許可一覧が拒否し、削除する途中では Access の新しい policy が拒否します。どちらも Worker のデプロイが失敗した時点で権限が広がりません。
 
-Zero Trust organization は Provider が import に対応していません。このリソースは現在の organization をデータソースで取得し、MFA とセッション以外を保持したまま API endpoint を更新して state に記録します。Zero Trust team domain が `wrangler.jsonc` と異なる account では処理を中断します。
+GitHub Environment、Cloudflare API token、R2 資格情報の作成手順は [必須セットアップ](required-setup.md#cloudflare-デプロイを準備する)だけに記載します。
 
-plan では次を確認します。
+## 初回 plan
+
+既存の Access application、App Launcher、One-time PIN、reusable policy、KV namespace は Cloudflare API から検出し、import block が state へ取り込みます。承認 application は AUD と保護対象 URL で特定します。候補が複数ある場合は plan を失敗させます。
+
+Zero Trust organization は Provider が import に対応していません。現在値をデータソースで取得し、MFA とセッション以外を保持したまま API endpoint を更新して state に記録します。Zero Trust team domain が `wrangler.jsonc` と異なる account では plan を失敗させます。
+
+初回 plan では次を確認します。
 
 - destroy と置換がない
 - Zero Trust organization と2個の reusable policy だけが create と表示される
 - 承認 application の保護対象が `/approval/authorize/*` だけ
 - organization 全体への MFA 適用が無効
 - 承認 application のセッションと MFA が15分
-- MFA method が承認 policy では Biometrics だけ
+- 承認 policy の MFA method が Biometrics だけ
 - App Launcher と承認 policy のメールアドレスが `wrangler.jsonc` と一致
 
-Zero Trust organization は import 非対応のため、既存でも create と表示されます。これと2個の reusable policy 以外の既存リソースが create と表示された場合は apply しません。Cloudflare account ID、API token の対象 account、`wrangler.jsonc` の AUD と KV ID を確認します。
+Zero Trust organization と2個の reusable policy 以外の既存リソースが create と表示された場合は apply を承認しません。Cloudflare account ID、API token の対象 account、`wrangler.jsonc` の AUD と KV ID を確認します。
 
-適用後に Worker 設定との一致を確認します。
+新しい Cloudflare account では、最初の apply 後に AUD または KV namespace ID の不一致で Worker デプロイ前に停止することがあります。Terraform の出力値を `wrangler.jsonc` へ反映し、Worker Secret を初回登録してから新しいソース SHA で再実行します。
 
-```shell
-terraform -chdir=terraform/cloudflare output
-pnpm run worker:types
-pnpm run check
-```
+## State と復旧
 
-`access_aud` または `deployment_requests_kv_namespace_id` の不一致が報告された場合は、出力値を `wrangler.jsonc` へ反映して Worker を再デプロイします。既存環境を正しく import した場合は変更不要です。
+backend は `check-github-pages-passkey-terraform-state` R2 bucket の `cloudflare/terraform.tfstate` を使います。Terraform の S3 lockfile を有効にし、同時更新を拒否します。bucket と R2 S3 API token は backend より先に必要なため、初回だけ手動で作成します。
 
-作業後は token を環境から削除します。
+既存の local state がある場合は、GitHub Workflow を初めて実行する前に R2 資格情報を環境変数へ設定し、state を移行します。
 
 ```shell
-unset CLOUDFLARE_API_TOKEN
-unset TF_VAR_cloudflare_account_id
+read -rp "R2 Access Key ID: " AWS_ACCESS_KEY_ID
+read -rsp "R2 Secret Access Key: " AWS_SECRET_ACCESS_KEY
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+printf '\n'
+export AWS_ENDPOINT_URL="https://Cloudflareのaccount ID.r2.cloudflarestorage.com"
+terraform -chdir=terraform/cloudflare init -migrate-state
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ENDPOINT_URL
 ```
 
-## 通常運用
+state と saved plan には Cloudflare から取得した構成が入ります。機密情報と同様に扱い、Git へ追加しません。plan artifact は GitHub Actions 内で1日後に削除されます。
 
-承認者の追加では `wrangler.jsonc` の `ALLOWED_APPROVER_EMAILS` だけを編集します。Terraform が同じ一覧を2個の Access policy に反映します。
+すべての管理対象リソースには `prevent_destroy` があります。`terraform destroy` は使いません。意図しない変更を適用した場合は、正しい構成を main へ反映し、新しい plan を確認して再適用します。
 
-追加時は Terraform を先に適用し、その後 Worker をデプロイします。途中では Access が通っても Worker の許可一覧が拒否するため、権限が早く有効になることはありません。
-
-```shell
-terraform -chdir=terraform/cloudflare plan -out=cloudflare.tfplan
-terraform -chdir=terraform/cloudflare apply cloudflare.tfplan
-pnpm run worker:types
-pnpm run check
-pnpm wrangler deploy
-```
-
-承認者の削除では Worker を先にデプロイし、その後 Terraform を適用します。これにより削除対象者を Worker が先に拒否します。
-
-Terraform のローカル state と plan は Git の管理外です。state には Cloudflare から取得した構成が入るため、機密情報と同様に扱います。state を失うと意図した差分を確認できなくなるため、安全な場所へバックアップします。複数人で運用する前に、locking を利用できる remote backend へ移行します。
-
-すべての管理対象リソースには `prevent_destroy` があります。`terraform destroy` は運用手順として使用しません。
-
-ユーザーによる MFA device の登録、Cloudflare API token の作成、plan の確認、Worker Secret の登録、実ブラウザでの認証確認は Terraform では代行できません。
+認証器の登録、API token の作成、plan の確認、Worker Secret の初回登録、実ブラウザでの認証確認は自動化しません。

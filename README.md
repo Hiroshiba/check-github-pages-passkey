@@ -12,8 +12,9 @@ Windows Hello は端末設定によって PIN でも認証できます。取り�
 - `approval` は承認要求を表示する Vite UI
 - `worker` は GitHub Webhook、Access JWT、GitHub App API を扱う Cloudflare Worker
 - `.github/workflows/deploy-pages.yml` は production ref からだけ実行する固定 Workflow
+- `.github/workflows/deploy-cloudflare.yml` は Terraform と Worker をデプロイする固定 Workflow
 - `wrangler.jsonc` は Worker の非機密設定と binding
-- `terraform/cloudflare` は Cloudflare Access と Workers KV の構成
+- `terraform/cloudflare` は Cloudflare Access、Workers KV、R2 remote state の構成
 
 GitHub の仕様により `workflow_dispatch` の定義ファイルは既定ブランチにも必要です。そのため Workflow ファイルは main にも存在します。実際のデプロイでは production ref のファイルだけを実行し、github-pages Environment の deployment branch rule でも production 以外を拒否します。
 
@@ -31,7 +32,7 @@ Worker は次を Webhook 受信時と決定直前に検証します。
 
 KV は承認要求の一覧に使います。承認の根拠には使わず、GitHub API から現在の Workflow run を再取得します。
 
-Cloudflare Access、One-time PIN、承認者 policy、Workers KV は Terraform で管理します。認証器の登録や API token の作成など、本人または管理者にしかできない作業は残ります。[必須セットアップ](docs/required-setup.md)を上から順に実行してください。Cloudflare の管理境界は [Cloudflare Terraform 運用](docs/cloudflare-terraform.md)にまとめています。Custom deployment protection rule は 2026年8月4日時点で Public Preview です。
+Cloudflare Access、One-time PIN、承認者 policy、Workers KV は Terraform で管理します。Terraform と Worker は production 上の固定 Workflow から順にデプロイします。認証器や資格情報の初回登録など、本人または管理者にしかできない作業は残ります。[必須セットアップ](docs/required-setup.md)を上から順に実行してください。通常の更新手順と管理境界は [Cloudflare デプロイ](docs/cloudflare-terraform.md)にまとめています。Custom deployment protection rule は 2026年8月4日時点で Public Preview です。
 
 ローカルで静的確認するには Node.js 24 と pnpm 10 を使います。
 
@@ -50,3 +51,4 @@ VITE_SOURCE_SHA=1111111111111111111111111111111111111111 pnpm run build:site
 - [Cloudflare Independent MFA](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/independent-mfa/)
 - [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
 - [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+- [Cloudflare Terraform remote backend](https://developers.cloudflare.com/terraform/advanced-topics/remote-backend/)

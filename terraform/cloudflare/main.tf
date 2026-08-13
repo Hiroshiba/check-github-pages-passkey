@@ -76,6 +76,11 @@ resource "cloudflare_zero_trust_access_identity_provider" "one_time_pin" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = length(local.existing_one_time_pin_identity_providers) <= 1
+      error_message = "One-time PIN identity provider が複数あります。管理対象を一意にできません"
+    }
   }
 }
 
@@ -92,6 +97,11 @@ resource "cloudflare_zero_trust_access_policy" "mfa_enrollment" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = length(local.existing_mfa_enrollment_policies) <= 1
+      error_message = "承認者 MFA 登録 policy が複数あります。管理対象を一意にできません"
+    }
   }
 }
 
@@ -113,6 +123,11 @@ resource "cloudflare_zero_trust_access_policy" "approval" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = length(local.existing_approval_policies) <= 1
+      error_message = "デプロイ承認者 policy が複数あります。管理対象を一意にできません"
+    }
   }
 }
 
@@ -130,6 +145,11 @@ resource "cloudflare_zero_trust_access_application" "app_launcher" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = length(local.existing_app_launchers) <= 1
+      error_message = "App Launcher が複数あります。管理対象を一意にできません"
+    }
   }
 }
 
@@ -155,6 +175,11 @@ resource "cloudflare_zero_trust_access_application" "approval" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = length(local.existing_approval_applications) <= 1
+      error_message = "承認用 Access Application が複数あります。AUD と保護対象を確認してください"
+    }
   }
 }
 
@@ -164,5 +189,10 @@ resource "cloudflare_workers_kv_namespace" "deployment_requests" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = length(local.existing_deployment_request_namespaces) <= 1
+      error_message = "承認要求用 Workers KV namespace が複数あります。管理対象を一意にできません"
+    }
   }
 }
