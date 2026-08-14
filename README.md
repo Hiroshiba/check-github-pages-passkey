@@ -32,7 +32,7 @@ Worker は次を Webhook 受信時と決定直前に検証します。
 
 KV は承認要求の一覧に使います。承認の根拠には使わず、GitHub API から現在の Workflow run を再取得します。
 
-Cloudflare Access、One-time PIN、承認者 policy、Workers KV は Terraform で管理します。Terraform と Worker は production 上の固定 Workflow から順にデプロイします。認証器や資格情報の初回登録など、本人または管理者にしかできない作業は残ります。[必須セットアップ](docs/required-setup.md)を上から順に実行してください。通常の更新手順と管理境界は [Cloudflare デプロイ](docs/cloudflare-terraform.md)にまとめています。Custom deployment protection rule は 2026年8月4日時点で Public Preview です。
+Cloudflare Access、One-time PIN、承認者 policy、Workers KV は Terraform で管理します。Terraform と Worker は production 上の固定 Workflow から順にデプロイします。認証器や資格情報の初回登録など、本人または管理者にしかできない作業は残ります。導入手順は [必須セットアップ](docs/required-setup.md)だけにまとめています。Custom deployment protection rule は Public Preview です。
 
 ローカルで静的確認するには Node.js 24 と pnpm 10 を使います。
 
