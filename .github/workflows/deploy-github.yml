@@ -1,0 +1,259 @@
+name: 固定 GitHub 設定デプロイ
+run-name: GitHub 設定デプロイ ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: main からデプロイする40文字のコミット SHA
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: github-settings-production
+  cancel-in-progress: false
+
+jobs:
+  validate-source:
+    name: 固定 ref と入力を検証
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      cloudflare_account_id: ${{ steps.settings.outputs.cloudflare_account_id }}
+    steps:
+      - name: production ref と入力形式を検証
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/production" ]]; then
+            echo "::error::GitHub 設定デプロイは production ref からだけ実行できます"
+            exit 1
+          fi
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::source_sha は40文字の小文字16進数で指定してください"
+            exit 1
+          fi
+
+      - name: 指定したソースを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: main と固定 SHA を検証
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main; then
+            echo "::error::source_sha は main から到達できるコミットではありません"
+            exit 1
+          fi
+          if ! EXPECTED_WORKFLOW_SHA="$(jq -er '.vars.EXPECTED_WORKFLOW_SHA | select(type == "string")' wrangler.jsonc)"; then
+            echo "::error::wrangler.jsonc に EXPECTED_WORKFLOW_SHA を文字列で設定してください"
+            exit 1
+          fi
+          if [[ "$EXPECTED_WORKFLOW_SHA" != "$GITHUB_SHA" ]]; then
+            echo "::error::wrangler.jsonc の EXPECTED_WORKFLOW_SHA が production の先頭コミットと一致しません"
+            exit 1
+          fi
+
+      - name: インフラ設定を検証
+        id: settings
+        shell: bash
+        run: |
+          if ! CLOUDFLARE_ACCOUNT_ID="$(jq -er '.cloudflare_account_id | select(type == "string")' terraform/settings.json)"; then
+            echo "::error::terraform/settings.json に cloudflare_account_id を設定してください"
+            exit 1
+          fi
+          if [[ ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::cloudflare_account_id は32文字の小文字16進数で指定してください"
+            exit 1
+          fi
+          if ! jq -e '
+            .github_environment_reviewer_logins as $reviewers |
+            ($reviewers | type) == "array" and
+            ($reviewers | length) >= 1 and
+            ($reviewers | length) <= 6 and
+            ($reviewers | length) == ($reviewers | unique | length) and
+            ($reviewers | all(.[];
+              type == "string" and
+              length <= 39 and
+              test("^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$") and
+              (startswith("replace-with-") | not)
+            ))
+          ' terraform/settings.json >/dev/null; then
+            echo "::error::github_environment_reviewer_logins に1人以上6人以下の有効な GitHub login を指定してください"
+            exit 1
+          fi
+          echo "cloudflare_account_id=$CLOUDFLARE_ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+  plan:
+    name: GitHub 設定の変更を確認
+    needs: validate-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: github-plan
+    permissions:
+      contents: read
+    outputs:
+      plan_sha256: ${{ steps.digest.outputs.sha256 }}
+    steps:
+      - name: 指定したソースを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: 資格情報の設定を検証
+        env:
+          GITHUB_TERRAFORM_TOKEN: ${{ secrets.GITHUB_TERRAFORM_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "$GITHUB_TERRAFORM_TOKEN" ]]; then
+            echo "::error::github-plan に GITHUB_TERRAFORM_TOKEN を設定してください"
+            exit 1
+          fi
+          if [[ -z "$R2_ACCESS_KEY_ID" ]]; then
+            echo "::error::github-plan に R2_ACCESS_KEY_ID を設定してください"
+            exit 1
+          fi
+          if [[ -z "$R2_SECRET_ACCESS_KEY" ]]; then
+            echo "::error::github-plan に R2_SECRET_ACCESS_KEY を設定してください"
+            exit 1
+          fi
+
+      - name: Terraform を準備
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e
+        with:
+          terraform_version: 1.14.5
+          terraform_wrapper: false
+
+      - name: Terraform backend を初期化
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_ENDPOINT_URL: https://${{ needs.validate-source.outputs.cloudflare_account_id }}.r2.cloudflarestorage.com
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: terraform init -input=false -lockfile=readonly
+        working-directory: terraform/github
+
+      - name: Terraform の形式を検証
+        run: terraform fmt -check -recursive
+        working-directory: terraform/github
+
+      - name: Terraform の構成を検証
+        run: terraform validate -no-color
+        working-directory: terraform/github
+
+      - name: Terraform plan を作成
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_ENDPOINT_URL: https://${{ needs.validate-source.outputs.cloudflare_account_id }}.r2.cloudflarestorage.com
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TERRAFORM_TOKEN }}
+        run: terraform plan -input=false -lock-timeout=5m -no-color -out=github.tfplan
+        working-directory: terraform/github
+
+      - name: Terraform plan のハッシュを記録
+        id: digest
+        shell: bash
+        run: sha256sum github.tfplan | awk '{print "sha256=" $1}' >> "$GITHUB_OUTPUT"
+        working-directory: terraform/github
+
+      - name: Terraform plan を保存
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          compression-level: 0
+          if-no-files-found: error
+          name: github-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: terraform/github/github.tfplan
+          retention-days: 1
+
+  apply:
+    name: 確認済みの GitHub 設定を適用
+    needs:
+      - validate-source
+      - plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: github-production
+    permissions:
+      contents: read
+    steps:
+      - name: 指定したソースを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: 資格情報の設定を検証
+        env:
+          GITHUB_TERRAFORM_TOKEN: ${{ secrets.GITHUB_TERRAFORM_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "$GITHUB_TERRAFORM_TOKEN" ]]; then
+            echo "::error::github-production に GITHUB_TERRAFORM_TOKEN を設定してください"
+            exit 1
+          fi
+          if [[ -z "$R2_ACCESS_KEY_ID" ]]; then
+            echo "::error::github-production に R2_ACCESS_KEY_ID を設定してください"
+            exit 1
+          fi
+          if [[ -z "$R2_SECRET_ACCESS_KEY" ]]; then
+            echo "::error::github-production に R2_SECRET_ACCESS_KEY を設定してください"
+            exit 1
+          fi
+
+      - name: Terraform を準備
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e
+        with:
+          terraform_version: 1.14.5
+          terraform_wrapper: false
+
+      - name: Terraform backend を初期化
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_ENDPOINT_URL: https://${{ needs.validate-source.outputs.cloudflare_account_id }}.r2.cloudflarestorage.com
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: terraform init -input=false -lockfile=readonly
+        working-directory: terraform/github
+
+      - name: Terraform plan を取得
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: github-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: terraform/github
+
+      - name: Terraform plan のハッシュを検証
+        env:
+          EXPECTED_PLAN_SHA256: ${{ needs.plan.outputs.plan_sha256 }}
+        shell: bash
+        run: |
+          if [[ ! "$EXPECTED_PLAN_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Terraform plan のハッシュが不正です"
+            exit 1
+          fi
+          printf '%s  %s\n' "$EXPECTED_PLAN_SHA256" github.tfplan | sha256sum --check --strict
+        working-directory: terraform/github
+
+      - name: Terraform plan を適用
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_ENDPOINT_URL: https://${{ needs.validate-source.outputs.cloudflare_account_id }}.r2.cloudflarestorage.com
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TERRAFORM_TOKEN }}
+        run: terraform apply -input=false -lock-timeout=5m -auto-approve github.tfplan
+        working-directory: terraform/github

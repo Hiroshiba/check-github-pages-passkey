@@ -14,6 +14,23 @@
 
 個人リポジトリの所有者は Admin から下げられません。個人アカウントでは仕組みの動作確認に限定します。本番では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
 
+`terraform/settings.json` の次の値を導入先に合わせます。
+
+- `cloudflare_account_id` は Cloudflare account ID
+- `github_environment_reviewer_logins` はインフラ変更を承認する GitHub login の一覧
+
+reviewer は 1 人以上 6 人以下で、リポジトリへの Read 権限が必要です。Workflow の実行者と別の reviewer が承認できるようにします。
+
+`wrangler.jsonc` の次の値も導入先に合わせます。
+
+- `ACCESS_TEAM_DOMAIN`
+- `ALLOWED_APPROVER_EMAILS`
+- `ALLOWED_REPOSITORY`
+- `ALLOWED_REPOSITORY_ID`
+- `GITHUB_APP_CLIENT_ID`
+
+`ACCESS_AUD` と `DEPLOYMENT_REQUESTS` の KV namespace ID は最初の Cloudflare Terraform 適用で決まるため、適用後に設定します。
+
 このリポジトリでは次の値を使います。
 
 - Zero Trust team domain は `https://voicevox-oss-01.cloudflareaccess.com`
@@ -44,17 +61,7 @@ Contents、Actions write、Pages、Administration の権限は付けません。
 
 App を対象リポジトリへインストールします。github-pages Environment での有効化は Worker の準備後に行います。
 
-`wrangler.jsonc` の次の値を導入先に合わせます。
-
-- `ACCESS_TEAM_DOMAIN`
-- `ALLOWED_APPROVER_EMAILS`
-- `ALLOWED_REPOSITORY`
-- `ALLOWED_REPOSITORY_ID`
-- `GITHUB_APP_CLIENT_ID`
-
-`ACCESS_AUD` と `DEPLOYMENT_REQUESTS` の KV namespace ID は最初の Terraform 適用で決まるため、適用後に設定します。
-
-## Cloudflare の資格情報を作る
+## Terraform の資格情報を作る
 
 Cloudflare Dashboard の R2 で `check-github-pages-passkey-terraform-state` bucket を作ります。Manage R2 API Tokens から、この bucket だけに Object Read and Write を許可する token を作ります。一度だけ表示される Access Key ID と Secret Access Key をパスワードマネージャーへ保存します。
 
@@ -72,64 +79,106 @@ production 用 token には次の権限を設定します。
 - Workers Scripts Edit
 - Account Settings Read
 
+GitHub の Fine-grained personal access token を plan 用と production 用に 1 個ずつ作ります。Resource owner と Repository access は対象リポジトリだけに限定します。
+
+| Repository permission | plan      | production     |
+| --------------------- | --------- | -------------- |
+| Administration        | Read-only | Read and write |
+| Contents              | Read-only | Read and write |
+| Environments          | Read-only | Read and write |
+| Pages                 | Read-only | Read and write |
+| Variables             | Read-only | Read and write |
+
 Token 名には用途を含め、有効期限とローテーション日を記録します。Token の値はパスワードマネージャー以外へ保存しません。
 
-## GitHub のブランチと Environment を作る
+## 固定 Workflow を production に置く
 
-1. `wrangler.jsonc` の導入先固有値を含む実装を main に反映する。
+1. `terraform/settings.json` と `wrangler.jsonc` の導入先固有値を含む実装を main に反映する。
 2. 内容を確認した main のコミットから production ブランチを作る。
-3. `.github/workflows/deploy-pages.yml` と `.github/workflows/deploy-cloudflare.yml` が両方のブランチに存在することを確認する。
+3. 3 個の固定 Workflow が main と production の両方に存在することを確認する。
 4. production の先頭コミット SHA を記録する。
 5. main の `wrangler.jsonc` にある `EXPECTED_WORKFLOW_SHA` を記録した SHA へ更新し、main に反映する。
 
+固定 Workflow は次の 3 個です。
+
+- `.github/workflows/deploy-pages.yml`
+- `.github/workflows/deploy-cloudflare.yml`
+- `.github/workflows/deploy-github.yml`
+
+production に新しい固定 Workflow を反映するときだけ、break-glass 管理者が現在の ruleset を一時的に無効化します。反映後はすぐ有効に戻します。
+
 `workflow_dispatch` の定義ファイルは既定ブランチにも必要です。main 上のファイルは起動入口として使い、デプロイでは production 上の固定ファイルだけを実行します。
 
-Repository settings の Rules で production 用 branch ruleset を作ります。
+## GitHub Terraform を初回適用する
 
-- 対象ブランチは `production` だけ
-- Enforcement status は Active
-- Restrict creations を有効化
-- Restrict updates を有効化
-- Restrict deletions を有効化
-- Block force pushes を有効化
-- 通常利用者や Approval App を bypass actor に追加しない
+最初の 1 回は GitHub 設定用 Environment がまだないため、break-glass 管理者がローカルから適用します。
 
-production の作成後に Restrict creations を有効化します。
+```shell
+read -rsp "GitHub production token: " GITHUB_TOKEN
+read -rp "R2 Access Key ID: " AWS_ACCESS_KEY_ID
+read -rsp "R2 Secret Access Key: " AWS_SECRET_ACCESS_KEY
+export GITHUB_TOKEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+printf '\n'
+export AWS_ENDPOINT_URL="https://Cloudflareのaccount ID.r2.cloudflarestorage.com"
+terraform -chdir=terraform/github init
+terraform -chdir=terraform/github fmt -check -recursive
+terraform -chdir=terraform/github validate
+terraform -chdir=terraform/github plan -out=github.tfplan
+terraform -chdir=terraform/github apply github.tfplan
+unset GITHUB_TOKEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ENDPOINT_URL
+```
 
-Repository settings の Pages で Source を GitHub Actions にします。
+plan では次を確認します。
 
-Repository settings の Environments で `github-pages` を作り、次を設定します。
+- default branch が main
+- production だけに creation、update、deletion、force push の制限がある
+- ruleset に bypass actor がない
+- GitHub Pages の build type が Workflow
+- `github-pages`、`cloudflare-plan`、`cloudflare-production`、`github-plan`、`github-production` が管理対象
+- 5 個の Environment が production だけを許可
+- 5 個の Environment で管理者 bypass が禁止
+- github-pages 以外の Environment で required reviewer と Prevent self-review が有効
+- `CLOUDFLARE_ACCOUNT_ID` Actions variable が `terraform/settings.json` と一致
+- destroy と意図しない置換がない
 
-- Deployment branches and tags は Selected branches and tags
-- 許可する branch pattern は `production` だけ
-- GitHub Pages が自動追加した `main` の branch pattern があれば削除
-- tag pattern は追加しない
-- 管理者による protection rule の bypass を禁止
-- Environment secret は作成しない
+## Environment Secret を登録する
 
-Repository settings の Actions、Variables で `CLOUDFLARE_ACCOUNT_ID` を repository variable として作ります。32 文字の小文字 16 進数で設定します。
+GitHub Terraform の適用後、次の Environment Secret を登録します。
 
-Repository settings の Environments で `cloudflare-plan` と `cloudflare-production` を作ります。両方に次を設定します。
+| Environment             | Secret                   | 値                             |
+| ----------------------- | ------------------------ | ------------------------------ |
+| `github-plan`           | `GITHUB_TERRAFORM_TOKEN` | GitHub plan 用 token           |
+| `github-plan`           | `R2_ACCESS_KEY_ID`       | R2 Access Key ID               |
+| `github-plan`           | `R2_SECRET_ACCESS_KEY`   | R2 Secret Access Key           |
+| `github-production`     | `GITHUB_TERRAFORM_TOKEN` | GitHub production 用 token     |
+| `github-production`     | `R2_ACCESS_KEY_ID`       | R2 Access Key ID               |
+| `github-production`     | `R2_SECRET_ACCESS_KEY`   | R2 Secret Access Key           |
+| `cloudflare-plan`       | `CLOUDFLARE_API_TOKEN`   | Cloudflare plan 用 token       |
+| `cloudflare-plan`       | `R2_ACCESS_KEY_ID`       | R2 Access Key ID               |
+| `cloudflare-plan`       | `R2_SECRET_ACCESS_KEY`   | R2 Secret Access Key           |
+| `cloudflare-production` | `CLOUDFLARE_API_TOKEN`   | Cloudflare production 用 token |
+| `cloudflare-production` | `R2_ACCESS_KEY_ID`       | R2 Access Key ID               |
+| `cloudflare-production` | `R2_SECRET_ACCESS_KEY`   | R2 Secret Access Key           |
 
-- Deployment branches and tags は Selected branches and tags
-- 許可する branch pattern は `production` だけ
-- required reviewer を設定
-- Prevent self-review を有効化
-- 管理者による protection rule の bypass を禁止
+GitHub CLI から対話入力する場合は、次の形式で 1 個ずつ登録します。
 
-別の reviewer を用意できない個人検証では、Environment 承認を独立した信頼境界として再現できません。
+```shell
+gh secret set Secret名 --env Environment名
+```
 
-Environment secret は次の対応で設定します。
+Approval GitHub App は自分自身と GitHub の保護設定を更新する Workflow を承認させないため、この 4 個の Environment では使いません。
 
-| Secret                 | cloudflare-plan      | cloudflare-production     |
-| ---------------------- | -------------------- | ------------------------- |
-| `CLOUDFLARE_API_TOKEN` | plan 用 token        | production 用 token       |
-| `R2_ACCESS_KEY_ID`     | R2 Access Key ID     | 同じ R2 Access Key ID     |
-| `R2_SECRET_ACCESS_KEY` | R2 Secret Access Key | 同じ R2 Secret Access Key |
+GitHub 設定の固定 Workflow を production ref から実行します。
 
-Approval GitHub App は自分自身の更新を承認させないため、この 2 個の Environment では使いません。
+```shell
+gh workflow run .github/workflows/deploy-github.yml \
+  --ref production \
+  --field source_sha=デプロイする40文字のコミットSHA
+```
 
-## Terraform を初回適用する
+github-plan の承認前に指定ソースの差分を確認します。github-production の承認前に plan job のログを確認し、同じ plan が適用されることを確認します。
+
+## Cloudflare Terraform を初回適用する
 
 main からデプロイする 40 文字のコミット SHA を選び、production ref から固定 Workflow を実行します。
 
@@ -148,10 +197,9 @@ cloudflare-plan の承認前に指定ソースの差分を確認します。plan
 - 承認 application と承認 policy のセッションが 15 分
 - 承認 policy の MFA method が Biometrics だけ
 - App Launcher と承認 policy のメールアドレスが `wrangler.jsonc` と一致
+- 作成対象が Zero Trust organization、One-time PIN、App Launcher、承認用 Access application、2 個の reusable policy、Workers KV namespace に限られる
 
-作成対象が Zero Trust organization、One-time PIN、App Launcher、承認用 Access application、2 個の reusable policy、Workers KV namespace に限られることを確認します。対象外のリソースに変更が表示された場合は適用しません。
-
-cloudflare-production の承認前に plan job のログを確認します。承認すると同じ plan を適用し、設定が一致していれば Worker までデプロイします。
+cloudflare-production の承認前に plan job のログを確認します。承認すると同じ plan を適用します。
 
 ## Worker の Secret を登録する
 
@@ -161,7 +209,7 @@ Worker に次の Secret を登録します。
 - `GITHUB_WEBHOOK_SECRET`
 - `GITHUB_APP_PRIVATE_KEY`
 
-最初の Terraform 適用後は Access AUD または KV namespace ID の不一致で Worker デプロイ前に停止します。R2 資格情報を設定して Terraform の出力を取得します。
+最初の Cloudflare Terraform 適用後は Access AUD または KV namespace ID の不一致で Worker デプロイ前に停止します。R2 資格情報を設定して Terraform の出力を取得します。
 
 ```shell
 read -rp "R2 Access Key ID: " AWS_ACCESS_KEY_ID
@@ -226,7 +274,7 @@ Terraform の適用後、承認者本人が各端末で次を実行します。�
 
 最初の MFA device の登録では別の device による確認がありません。承認者を Access policy へ追加してから本人が登録するまでの時間を短くします。2 個目以降の登録には最初に登録した MFA device が必要です。
 
-Worker のトップページと `/health` を開きます。`/health` が `200` と `{"status":"ok"}` を返した後、github-pages Environment の Deployment protection rules で Approval GitHub App を有効化します。
+Worker のトップページと `/health` を開きます。`/health` が `200` と `{"status":"ok"}` を返した後、github-pages Environment の Deployment protection rules で Approval GitHub App を有効化します。この設定は Terraform GitHub Provider が対応していないため、手動で行います。
 
 ## 最初の GitHub Pages デプロイを確認する
 
@@ -242,12 +290,12 @@ gh workflow run .github/workflows/deploy-pages.yml \
 
 導入完了前に次を確認します。
 
-- main ref から両方の固定 Workflow を実行すると拒否される
-- production 以外を 3 個の Environment が拒否する
-- Cloudflare plan と apply が別々の承認を要求する
+- main ref から 3 個の固定 Workflow を実行すると拒否される
+- production 以外を 5 個の Environment が拒否する
+- GitHub と Cloudflare の plan と apply がそれぞれ別の承認を要求する
 - `EXPECTED_WORKFLOW_SHA` と異なる run を Worker が拒否する
 - Windows と macOS から承認すると、それぞれ Windows Hello と Touch ID を要求される
 - 認証から 15 分後の承認で Windows Hello または Touch ID を再要求される
 - Workflow run の再実行でも新しい承認を要求する
-- production ruleset に通常利用者の bypass がない
-- 3 個の Environment で管理者 bypass が禁止されている
+- production ruleset に bypass actor がない
+- 5 個の Environment で管理者 bypass が禁止されている

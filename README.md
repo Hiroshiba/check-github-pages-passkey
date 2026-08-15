@@ -13,8 +13,11 @@ Windows Hello は端末設定によって PIN でも認証できます。取り�
 - `worker` は GitHub Webhook、Access JWT、GitHub App API を扱う Cloudflare Worker
 - `.github/workflows/deploy-pages.yml` は production ref からだけ実行する固定 Workflow
 - `.github/workflows/deploy-cloudflare.yml` は Terraform と Worker をデプロイする固定 Workflow
+- `.github/workflows/deploy-github.yml` は GitHub 設定を Terraform でデプロイする固定 Workflow
 - `wrangler.jsonc` は Worker の非機密設定と binding
 - `terraform/cloudflare` は Cloudflare Access、Workers KV、R2 remote state の構成
+- `terraform/github` は production、GitHub Pages、Environment の構成
+- `terraform/settings.json` は Terraform 間で共有する非機密設定
 
 GitHub の仕様により `workflow_dispatch` の定義ファイルは既定ブランチにも必要です。そのため Workflow ファイルは main にも存在します。実際のデプロイでは production ref のファイルだけを実行し、github-pages Environment の deployment branch rule でも production 以外を拒否します。
 
@@ -32,7 +35,7 @@ Worker は次を Webhook 受信時と決定直前に検証します。
 
 KV は承認要求の一覧に使います。承認の根拠には使わず、GitHub API から現在の Workflow run を再取得します。
 
-Cloudflare Access、One-time PIN、承認者 policy、Workers KV は Terraform で管理します。Terraform と Worker は production 上の固定 Workflow から順にデプロイします。認証器や資格情報の初回登録など、本人または管理者にしかできない作業は残ります。導入手順は [必須セットアップ](docs/required-setup.md)だけにまとめています。Custom deployment protection rule は Public Preview です。
+Cloudflare Access、One-time PIN、承認者 policy、Workers KV に加え、production ruleset、GitHub Pages、Environment も Terraform で管理します。Terraform と Worker は production 上の固定 Workflow からデプロイします。認証器や資格情報の初回登録など、本人または管理者にしかできない作業は残ります。導入手順は [必須セットアップ](docs/required-setup.md)だけにまとめています。Custom deployment protection rule は Public Preview です。
 
 ローカルで静的確認するには Node.js 24 と pnpm 10 を使います。
 
@@ -48,6 +51,7 @@ VITE_SOURCE_SHA=1111111111111111111111111111111111111111 pnpm run build:site
 
 - [GitHub custom deployment protection rule](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/create-custom-protection-rules)
 - [GitHub workflow_dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
+- [Terraform GitHub Provider](https://registry.terraform.io/providers/integrations/github/latest/docs)
 - [Cloudflare Independent MFA](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/independent-mfa/)
 - [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
 - [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
