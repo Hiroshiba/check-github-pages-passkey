@@ -5,12 +5,11 @@
 ## 前提を確認する
 
 - リポジトリを Public にする
-- 既定ブランチを main にする
 - 通常利用者の権限を Write 以下にする
 - break-glass 用管理者と Cloudflare 管理者の認証を承認専用認証と分離する
 - Node.js 24、pnpm 10、Terraform 1.14、OpenSSL、GitHub CLI を用意する
 - Cloudflare Zero Trust を開始し、team domain を作成する
-- `voicevox.oss@gmail.com` と `hihokaruta@gmail.com` が One-time PIN を受信できることを確認する
+- 承認者が One-time PIN を受信できるメールアドレスを用意する
 
 個人リポジトリの所有者は Admin から下げられません。個人アカウントでは仕組みの動作確認に限定します。本番では Organization へ移し、通常利用アカウントを Write 以下にして、別の break-glass 用アカウントだけを Owner にします。
 
@@ -19,7 +18,7 @@
 - `cloudflare_account_id` は Cloudflare account ID
 - `github_environment_reviewer_logins` はインフラ変更を承認する GitHub login の一覧
 
-reviewer は 1 人以上 6 人以下で、リポジトリへの Read 権限が必要です。Workflow の実行者と別の reviewer が承認できるようにします。
+reviewer にはリポジトリへの Read 権限が必要です。Workflow の実行者と別の reviewer が承認できるようにします。
 
 `wrangler.jsonc` の次の値も導入先に合わせます。
 
@@ -30,14 +29,6 @@ reviewer は 1 人以上 6 人以下で、リポジトリへの Read 権限が�
 - `GITHUB_APP_CLIENT_ID`
 
 `ACCESS_AUD` と `DEPLOYMENT_REQUESTS` の KV namespace ID は最初の Cloudflare Terraform 適用で決まるため、適用後に設定します。
-
-このリポジトリでは次の値を使います。
-
-- Zero Trust team domain は `https://voicevox-oss-01.cloudflareaccess.com`
-- 承認用ホスト名は `github-pages-deployment-approval.voicevox-oss.workers.dev`
-- 承認用認証器は Windows Hello と macOS Touch ID
-
-Windows Hello と Touch ID は Cloudflare では Biometrics に分類されます。Windows Hello は端末設定によって PIN でも認証できます。取り外し可能な物理セキュリティキーだけを必須にする構成ではありません。
 
 GitHub の custom deployment protection rule は Public Preview です。導入時に最新の仕様を確認してください。
 
@@ -91,27 +82,9 @@ GitHub の Fine-grained personal access token を plan 用と production 用に 
 
 Token 名には用途を含め、有効期限とローテーション日を記録します。Token の値はパスワードマネージャー以外へ保存しません。
 
-## 固定 Workflow を production に置く
-
-1. `terraform/settings.json` と `wrangler.jsonc` の導入先固有値を含む実装を main に反映する。
-2. 内容を確認した main のコミットから production ブランチを作る。
-3. 3 個の固定 Workflow が main と production の両方に存在することを確認する。
-4. production の先頭コミット SHA を記録する。
-5. main の `wrangler.jsonc` にある `EXPECTED_WORKFLOW_SHA` を記録した SHA へ更新し、main に反映する。
-
-固定 Workflow は次の 3 個です。
-
-- `.github/workflows/deploy-pages.yml`
-- `.github/workflows/deploy-cloudflare.yml`
-- `.github/workflows/deploy-github.yml`
-
-production に新しい固定 Workflow を反映するときだけ、break-glass 管理者が現在の ruleset を一時的に無効化します。反映後はすぐ有効に戻します。
-
-`workflow_dispatch` の定義ファイルは既定ブランチにも必要です。main 上のファイルは起動入口として使い、デプロイでは production 上の固定ファイルだけを実行します。
-
 ## GitHub Terraform を初回適用する
 
-最初の 1 回は GitHub 設定用 Environment がまだないため、break-glass 管理者がローカルから適用します。
+`terraform/settings.json` と `wrangler.jsonc` の導入先固有値を main に反映します。最初の 1 回は GitHub 設定用 Environment がまだないため、break-glass 管理者がローカルから適用します。
 
 ```shell
 read -rsp "GitHub production token: " GITHUB_TOKEN
@@ -124,22 +97,22 @@ terraform -chdir=terraform/github init
 terraform -chdir=terraform/github fmt -check -recursive
 terraform -chdir=terraform/github validate
 terraform -chdir=terraform/github plan -out=github.tfplan
+```
+
+plan に想定外の変更、削除、置換がないことを確認してから適用します。
+
+```shell
 terraform -chdir=terraform/github apply github.tfplan
 unset GITHUB_TOKEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_ENDPOINT_URL
 ```
 
-plan では次を確認します。
+production の先頭コミット SHA を取得します。
 
-- default branch が main
-- production だけに creation、update、deletion、force push の制限がある
-- ruleset に bypass actor がない
-- GitHub Pages の build type が Workflow
-- `github-pages`、`cloudflare-plan`、`cloudflare-production`、`github-plan`、`github-production` が管理対象
-- 5 個の Environment が production だけを許可
-- 5 個の Environment で管理者 bypass が禁止
-- github-pages 以外の Environment で required reviewer と Prevent self-review が有効
-- `CLOUDFLARE_ACCOUNT_ID` Actions variable が `terraform/settings.json` と一致
-- destroy と意図しない置換がない
+```shell
+gh api "repos/$(jq -r '.vars.ALLOWED_REPOSITORY' wrangler.jsonc)/commits/production" --jq .sha
+```
+
+出力値を `wrangler.jsonc` の `EXPECTED_WORKFLOW_SHA` に設定し、main に反映します。
 
 ## Environment Secret を登録する
 
@@ -188,18 +161,7 @@ gh workflow run .github/workflows/deploy-cloudflare.yml \
   --field source_sha=デプロイする40文字のコミットSHA
 ```
 
-cloudflare-plan の承認前に指定ソースの差分を確認します。plan では次を確認します。
-
-- destroy と意図しない置換がない
-- 保護対象が `/approval/authorize/*` だけ
-- organization 全体への MFA 適用が無効
-- organization の既定セッションと MFA セッションが 24 時間
-- 承認 application と承認 policy のセッションが 15 分
-- 承認 policy の MFA method が Biometrics だけ
-- App Launcher と承認 policy のメールアドレスが `wrangler.jsonc` と一致
-- 作成対象が Zero Trust organization、One-time PIN、App Launcher、承認用 Access application、2 個の reusable policy、Workers KV namespace に限られる
-
-cloudflare-production の承認前に plan job のログを確認します。承認すると同じ plan を適用します。
+cloudflare-plan の承認前に指定ソースの差分と plan を確認します。想定外の変更、削除、置換がないことを確認します。cloudflare-production の承認前に plan job のログを確認します。承認すると同じ plan を適用します。
 
 ## Worker の Secret を登録する
 
@@ -290,12 +252,9 @@ gh workflow run .github/workflows/deploy-pages.yml \
 
 導入完了前に次を確認します。
 
-- main ref から 3 個の固定 Workflow を実行すると拒否される
-- production 以外を 5 個の Environment が拒否する
+- main ref から各固定 Workflow を実行すると拒否される
 - GitHub と Cloudflare の plan と apply がそれぞれ別の承認を要求する
 - `EXPECTED_WORKFLOW_SHA` と異なる run を Worker が拒否する
 - Windows と macOS から承認すると、それぞれ Windows Hello と Touch ID を要求される
 - 認証から 15 分後の承認で Windows Hello または Touch ID を再要求される
 - Workflow run の再実行でも新しい承認を要求する
-- production ruleset に bypass actor がない
-- 5 個の Environment で管理者 bypass が禁止されている
