@@ -54,21 +54,35 @@ App を対象リポジトリへインストールします。github-pages Enviro
 
 ## Terraform の資格情報を作る
 
-Cloudflare Dashboard の R2 で `check-github-pages-passkey-terraform-state` bucket を作ります。Manage R2 API Tokens から、この bucket だけに Object Read and Write を許可する token を作ります。一度だけ表示される Access Key ID と Secret Access Key をパスワードマネージャーへ保存します。
+Cloudflare Dashboard で対象 account の R2 object storage を開き、次の手順で Terraform state 用の bucket と資格情報を作ります。
+
+1. Overview で Create bucket を選ぶ。
+2. Bucket name に `check-github-pages-passkey-terraform-state` を指定する。
+3. Location は None のままにして Automatic 配置を使う。Specify jurisdiction は選ばない。
+4. Create bucket を選び、bucket 一覧に表示されることを確認する。
+5. Overview の Account Details で API Tokens の Manage を選ぶ。
+6. Create Account API token を選ぶ。
+7. Token name に `check-github-pages-passkey-terraform-state` を指定する。
+8. Permissions は Object Read and Write を選ぶ。
+9. Apply to specific buckets only を選び、作成した bucket だけを指定する。
+10. token を作り、一度だけ表示される Access Key ID と Secret Access Key をパスワードマネージャーへ保存する。
 
 対象 account だけを Include した Cloudflare API token を 2 個作ります。plan 用 token には次の Read 権限を設定します。
 
-- Access: Apps and Policies Read
-- Access: Organizations, Identity Providers, and Groups Read
+- Access: Apps Read
+- Access: Policies Read
+- Access: Organizations Read
+- Access: Identity Providers Read
 - Workers KV Storage Read
 
 production 用 token には次の権限を設定します。
 
-- Access: Apps and Policies Edit
-- Access: Organizations, Identity Providers, and Groups Edit
+- Access: Apps Edit
+- Access: Policies Edit
+- Access: Organizations Edit
+- Access: Identity Providers Edit
 - Workers KV Storage Edit
 - Workers Scripts Edit
-- Account Settings Read
 
 GitHub の Fine-grained personal access token を plan 用と production 用に 1 個ずつ作ります。Resource owner と Repository access は対象リポジトリだけに限定します。
 
@@ -80,7 +94,7 @@ GitHub の Fine-grained personal access token を plan 用と production 用に 
 | Pages                 | Read-only | Read and write |
 | Variables             | Read-only | Read and write |
 
-Token 名には用途を含め、有効期限とローテーション日を記録します。Token の値はパスワードマネージャー以外へ保存しません。
+Token 名は GitHub の文字数制限に収まる短い名前にします。plan 用は `check-github-pages-passkeyのplan用`、production 用は `check-github-pages-passkeyのapply用` など、一覧で用途を識別できる名前にします。有効期限を設定します。No expiration を使う場合は手動ローテーション日を記録します。Token の値はパスワードマネージャー以外へ保存しません。
 
 ## GitHub Terraform を初回適用する
 
